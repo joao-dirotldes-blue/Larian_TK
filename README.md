@@ -130,6 +130,8 @@ curl -i -X POST http://localhost:5180/reservar \
 
 ## Produção (Cloudflare — Pages/Workers/Tunnel)
 
+Consulte o guia detalhado em docs/cloudflare.md.
+
 A partir da versão “Cloudflare-friendly”, o front descobre a base da API (`apiBase`) usando a seguinte heurística:
 
 1) Se houver `?apiBase=...` na URL: usa exatamente esse valor.
