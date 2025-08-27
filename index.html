@@ -6,6 +6,20 @@
     <title>Emissão de Bilhete</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
+  <head>
+    <!-- Bibliotecas necessárias para captura e PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+      // Garante que html2canvas e jsPDF fiquem disponíveis globalmente
+      window.html2canvas = window.html2canvas;
+      window.jspdf = window.jspdf || window.jspdf || {};
+    </script>
+    <!-- PDF-LIB via CDN -->
+    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <!-- App -->
+    <script src="app.js" defer></script>
+  </head>
   <body>
     <main class="container">
       <h1>Emissão de Bilhete</h1>

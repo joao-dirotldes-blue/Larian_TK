@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Bilhete Eletrônico - Eticket</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      color: #333;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo {
+      height: 50px;
+    }
+    h1 {
+      color: red;
+      font-size: 16px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+    }
+    table, th, td {
+      border: 1px solid #aaa;
+    }
+    th, td {
+      padding: 6px;
+      text-align: left;
+    }
+    .gol {
+      background-color: #f60;
+      color: white;
+      font-weight: bold;
+      text-align: center;
+    }
+    .info {
+      font-size: 10px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <!-- Substituímos o FLY TOUR pelo SVG fornecido -->
+      <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 114'><text x='0' y='90' font-size='100' fill='purple' font-family='Arial'>LARIAN</text></svg>" alt="LARIAN Logo" height="50">
+    </div>
+    <div>
+      <h1>Bilhete Eletrônico - Eticket</h1>
+      <p>Email: elenice.poa@flytour.com.br<br>Telefone: 55 51 30282800</p>
+    </div>
+  </div>
+
+  <h2>Informações do Bilhete</h2>
+  <table>
+    <tr><th>Número do bilhete</th><th>Localizador da Reserva</th><th>Passageiro</th><th>Emissão</th></tr>
+    <tr>
+      <td style="color:red;" id="numeroBilhete"></td>
+      <td id="localizador"></td>
+      <td id="passageiro"></td>
+      <td id="emissao"></td>
+    </tr>
+  </table>
+
+  <h2>Voos</h2>
+  <table>
+    <tr>
+      <th>Cia</th><th>Origem / Destino</th><th>Voo</th><th>Esc.</th><th>Cl.</th><th>Info</th><th>Loc Cia</th>
+    </tr>
+    <tr>
+      <td class="gol">GOL</td>
+      <td id="voo1"></td>
+      <td id="voo1Num"></td>
+      <td id="voo1Esc"></td>
+      <td id="voo1Cl"></td>
+      <td id="voo1Info"></td>
+      <td id="voo1Loc"></td>
+    </tr>
+    <tr>
+      <td class="gol">GOL</td>
+      <td id="voo2"></td>
+      <td id="voo2Num"></td>
+      <td id="voo2Esc"></td>
+      <td id="voo2Cl"></td>
+      <td id="voo2Info"></td>
+      <td id="voo2Loc"></td>
+    </tr>
+  </table>
+
+  <h2>Tarifamento</h2>
+  <table>
+    <tr><th>Tarifa</th><th>Taxas</th><th>Total</th></tr>
+    <tr><td id="tarifa"></td><td id="taxas"></td><td id="total"></td></tr>
+  </table>
+
+  <h2>Pagamento</h2>
+  <table>
+    <tr><th>Forma</th><th>Tarifa</th><th>Taxas</th><th>Total</th><th>Bandeira</th><th>Cartão</th><th>Autorização</th></tr>
+    <tr>
+      <td id="forma"></td>
+      <td id="pagTarifa"></td>
+      <td id="pagTaxas"></td>
+      <td id="pagTotal"></td>
+      <td id="bandeira"></td>
+      <td id="cartao"></td>
+      <td id="autorizacao"></td>
+    </tr>
+  </table>
+
+  <div class="info">
+    <h3>Informações</h3>
+    <p>Os voos são válidos apenas para utilização nos datas e horários reservados e emitidos. Em caso de alteração voluntária estão sujeitos às condições impostas pela companhia aérea e eventuais diferenças tarifárias.</p>
+
+    <h3>Informações para Embarque</h3>
+    <ul>
+      <li>Apresente-se no check-in com 2h de antecedência em voos nacionais e 3h em voos internacionais.</li>
+      <li>Levar documento original: Carteira de Identidade para voos nacionais.</li>
+      <li>Levar documento original: Passaporte e vistos necessários para o destino em voos internacionais.</li>
+    </ul>
+  </div>
+<script>
+  // Exemplo de preenchimento dinâmico com dados vindos de outra tela
+  const dados = {
+    numeroBilhete: "127 0003532513",
+    localizador: "UQSR3K",
+    passageiro: "ADT - BRUISMANN/LISANE",
+    emissao: "LARIAN B TRAVEL - UNIDADE SANTANA - 20/01/2020 por ELIENE DA COSTA",
+    voo1: "POA - PORTO ALEGRE → SDU - RIO DE JANEIRO (Santos Dumont)<br>15 MAI 16:10 → 15 MAI 18:00",
+    voo1Num: "G3 2145",
+    voo1Esc: "0",
+    voo1Cl: "B",
+    voo1Info: "Família: Light<br>Base Tar: BZ2BBZ",
+    voo1Loc: "UQSR3K",
+    voo2: "SDU - RIO DE JANEIRO (Santos Dumont) → POA - PORTO ALEGRE<br>17 MAI 20:00 → 17 MAI 22:00",
+    voo2Num: "G3 2146",
+    voo2Esc: "0",
+    voo2Cl: "B",
+    voo2Info: "Família: Light<br>Base Tar: BZ2BBZ",
+    voo2Loc: "UQSR3K",
+    tarifa: "R$ 320,00",
+    taxas: "R$ 106,70",
+    total: "R$ 426,70",
+    forma: "Cartão",
+    pagTarifa: "R$ 320,00",
+    pagTaxas: "R$ 106,70",
+    pagTotal: "R$ 426,70",
+    bandeira: "VI",
+    cartao: "8506",
+    autorizacao: "118546"
+  };
+
+  Object.keys(dados).forEach(id => {
+    document.getElementById(id).innerHTML = dados[id];
+  });
+</script>
+</body>
+</html>

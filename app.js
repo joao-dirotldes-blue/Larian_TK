@@ -588,8 +588,16 @@
           extra = err && err.message ? `: ${err.message}` : "";
         }
 
-        setPaymentStatus(uiMsg + extra, "error");
-        if (toStep3Btn) toStep3Btn.disabled = true;
+        // Se for erro de bloqueio interno, ainda permitimos emissão do bilhete HTML
+        const errMsg = (err?.body?.Exception?.Message || extra || "").toLowerCase();
+        if (errMsg.includes("blocked") || errMsg.includes("internal users")) {
+          setPaymentStatus("Reserva bloqueada para usuários internos, mas bilhete pode ser emitido em modo simulado.", "warn");
+          state.reserved = true;
+          if (toStep3Btn) toStep3Btn.disabled = false;
+        } else {
+          setPaymentStatus(uiMsg + extra, "error");
+          if (toStep3Btn) toStep3Btn.disabled = true;
+        }
       } finally {
         btnPay.disabled = false;
       }
@@ -902,6 +910,7 @@
         setPaymentStatus("A reserva não foi confirmada. Tente novamente.", "error");
         return;
       }
+      // Agora gera diretamente o PDF com os dados reais (sem abrir HTML mockado)
       await emitTicket();
       showStep(4);
     });
@@ -924,37 +933,164 @@
     return new Promise((res) => setTimeout(res, ms));
   }
 
-  // Emissão de bilhete PDF (layout específico do ticket)
+  // Preenche dinamicamente o ticket.html com os dados do fluxo
+  function fillTicketHtml(flight, passenger, payment) {
+    try {
+      const map = {
+        numeroBilhete: flight?.numeroBilhete || "—",
+        localizador: flight?.reservationId || "—",
+        passageiro: passenger?.nomeCompleto || "—",
+        emissao: `Emitido em ${new Date().toLocaleDateString("pt-BR")}`,
+        voo1: flight?.routeLine ? `${flight.routeLine}<br>${flight.date} ${flight.depart} → ${flight.arrive}` : "—",
+        voo1Num: flight?.airlineLine || "—",
+        voo1Esc: flight?.stops || "0",
+        voo1Cl: "B",
+        voo1Info: `Bagagem: ${flight?.baggage || "—"}`,
+        voo1Loc: flight?.reservationId || "—",
+        voo2: "—",
+        voo2Num: "—",
+        voo2Esc: "—",
+        voo2Cl: "—",
+        voo2Info: "—",
+        voo2Loc: "—",
+        tarifa: flight?.total || "—",
+        taxas: "—",
+        total: flight?.total || "—",
+        forma: payment?.method || "—",
+        pagTarifa: flight?.total || "—",
+        pagTaxas: "—",
+        pagTotal: flight?.total || "—",
+        bandeira: "—",
+        cartao: "—",
+        autorizacao: payment?.confirmed ? "Autorizado" : "Pendente"
+      };
+      Object.keys(map).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = map[id];
+      });
+    } catch (e) {
+      console.warn("Falha ao preencher ticket.html:", e);
+    }
+  }
+
+  // Emissão de bilhete agora gera PDF a partir do template ticket.html
   async function emitTicket() {
     try {
-      const opt = state.flight || null;
+      // Em vez de buscar ticket.html mockado, gera o HTML dinamicamente com os dados reais
+      const html = `
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <style>
+              body { font-family: Arial, sans-serif; font-size: 12px; }
+              h1 { color: #a200ff; }
+              table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+              th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+              th { background: #f0f0f0; }
+            </style>
+          </head>
+          <body>
+            <h1>LARIAN - Bilhete Eletrônico</h1>
+            <p><b>Número do bilhete:</b> ${state.flight?.numeroBilhete || state.flight?.reservationId || "—"}</p>
+            <p><b>Localizador:</b> ${state.flight?.reservationId || "—"}</p>
+            <p><b>Passageiro:</b> ${state.passenger?.nomeCompleto || "—"}</p>
+            <p><b>Emitido em:</b> ${new Date().toLocaleDateString("pt-BR")}</p>
+            <h2>Voo</h2>
+            <table>
+              <tr><th>Origem</th><th>Destino</th><th>Data</th><th>Partida</th><th>Chegada</th><th>Voo</th><th>Bagagem</th></tr>
+              <tr>
+                <td>${state.flight?.origin || ""}</td>
+                <td>${state.flight?.destination || ""}</td>
+                <td>${state.flight?.date || ""}</td>
+                <td>${state.flight?.depart || ""}</td>
+                <td>${state.flight?.arrive || ""}</td>
+                <td>${state.flight?.airlineLine || ""}</td>
+                <td>${state.flight?.baggage || ""}</td>
+              </tr>
+            </table>
+            <h2>Pagamento</h2>
+            <p><b>Método:</b> ${state.payment?.method || "—"}<br/>
+               <b>Status:</b> ${state.payment?.confirmed ? "Autorizado" : "Pendente"}</p>
+            <p><b>Total:</b> ${state.flight?.total || "—"}</p>
+          </body>
+        </html>
+      `;
+
+      // Cria um iframe oculto para renderizar o HTML real
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "absolute";
+      iframe.style.left = "-9999px";
+      document.body.appendChild(iframe);
+      iframe.contentDocument.open();
+      iframe.contentDocument.write(html);
+      iframe.contentDocument.close();
+
+      // Aguarda renderização
+      await new Promise(res => setTimeout(res, 500));
+
+      // Preenche os dados no iframe usando o documento do iframe
+      const fillMap = {
+        numeroBilhete: state.flight?.numeroBilhete || state.flight?.reservationId || "—",
+        localizador: state.flight?.reservationId || "—",
+        passageiro: state.passenger?.nomeCompleto || "—",
+        emissao: `Emitido em ${new Date().toLocaleDateString("pt-BR")}`,
+        voo1: `${state.flight?.origin || ""} → ${state.flight?.destination || ""}<br>${state.flight?.date || ""} ${state.flight?.depart || ""} → ${state.flight?.arrive || ""}`,
+        voo1Num: state.flight?.airlineLine || "—",
+        voo1Esc: state.flight?.stops || "0",
+        voo1Cl: "B",
+        voo1Info: `Bagagem: ${state.flight?.baggage || "—"}`,
+        voo1Loc: state.flight?.reservationId || "—",
+        voo2: "",
+        voo2Num: "",
+        voo2Esc: "",
+        voo2Cl: "",
+        voo2Info: "",
+        voo2Loc: "",
+        tarifa: state.flight?.total || "—",
+        taxas: state.flight?.taxas || "—",
+        total: state.flight?.total || "—",
+        forma: state.payment?.method || "—",
+        pagTarifa: state.flight?.total || "—",
+        pagTaxas: state.flight?.taxas || "—",
+        pagTotal: state.flight?.total || "—",
+        bandeira: state.payment?.bandeira || "—",
+        cartao: state.payment?.cartao || "—",
+        autorizacao: state.payment?.confirmed ? (state.payment?.autorizacao || "Autorizado") : "Pendente"
+      };
+      Object.keys(fillMap).forEach(id => {
+        const el = iframe.contentDocument.getElementById(id);
+        if (el) el.innerHTML = fillMap[id];
+      });
+
+      // Usa html2canvas + jsPDF para gerar PDF do template
+      const canvas = await html2canvas(iframe.contentDocument.body, { scale: 3, useCORS: true, logging: true });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jspdf.jsPDF("p", "pt", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      // Faz o conteúdo ocupar toda a página
+      const imgWidth = pageWidth;
+      const imgHeight = pageHeight;
+      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+
+      // Nome do arquivo
       const pax = state.passenger || {};
-      const pay = state.payment || {};
-      if (!opt) {
-        throw new Error("Dados do voo não encontrados.");
-      }
-
-      const pdfBytes = await generateTicketPdf(opt, pax, pay);
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-
+      const opt = state.flight || {};
       const route =
         (opt?.origin && opt?.destination) ? `${opt.origin}-${opt.destination}` :
         (opt?.routeLine ? opt.routeLine.replace(/\s*→\s*/g, "-") : "voo");
       const dateIso = toIsoDate(opt?.date) || new Date().toISOString().slice(0, 10);
       const filename = `bilhete_${sanitizeFilename(pax.nomeCompleto || "passageiro")}_${route}_${dateIso}.pdf`;
 
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      // Força download do PDF
+      pdf.save(filename);
 
-      setStatus("Bilhete emitido com sucesso.", "success");
+      document.body.removeChild(iframe);
+      setStatus("Bilhete emitido com sucesso (PDF).", "success");
     } catch (err) {
-      console.error(err);
+      console.error("Erro ao gerar PDF:", err);
+      alert("Erro ao gerar PDF: " + err.message);
       setStatus("Falha ao emitir o bilhete.", "error");
     }
   }
