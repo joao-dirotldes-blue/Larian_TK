@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+    env_file:
+      - .env
+    environment:
+      # Default in case .env is not provided
+      PORT: ${PORT:-5174}
+    expose:
+      - "5174"
+    restart: unless-stopped
+    healthcheck:
+      # busybox wget is available in alpine base images
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5174/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - webnet
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - webnet
+
+networks:
+  webnet: {}
