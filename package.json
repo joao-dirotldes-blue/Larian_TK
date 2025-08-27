@@ -1,0 +1,20 @@
+{
+  "name": "larian-pdf",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "python3 -m http.server 5173",
+    "api": "node api.js",
+    "api:5180": "PORT=5180 node api.js",
+    "api:any": "PORT=0 node api.js",
+    "start": "npm run dev",
+    "test": "npm run dev"
+  },
+  "author": "",
+  "license": "ISC",
+  "keywords": [],
+  "description": "",
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
+}

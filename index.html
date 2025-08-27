@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Emissão de Bilhete</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Emissão de Bilhete</h1>
+      <p class="subtitle">Preencha os dados do voo e do passageiro, confirme o pagamento e emita o bilhete em PDF.</p>
+
+      <div class="stepper">
+        <div class="step-indicator" id="step1-dot">1</div>
+        <div class="step-line"></div>
+        <div class="step-indicator" id="step2-dot">2</div>
+        <div class="step-line"></div>
+        <div class="step-indicator" id="step3-dot">3</div>
+        <div class="step-line"></div>
+        <div class="step-indicator" id="step4-dot">4</div>
+      </div>
+
+      <!-- STEP 1: Dados do voo e do passageiro -->
+      <section id="step1" class="card step">
+        <h2>1) Dados do Voo</h2>
+        <div class="grid">
+          <!-- Dados do Voo -->
+            <div class="field">
+              <label for="ciaVoo">Companhia / Voo</label>
+              <input id="ciaVoo" name="ciaVoo" type="text" placeholder="Ex.: GOL LINHAS AÉREAS G3 2150" />
+            </div>
+            <div class="field">
+              <label for="dataVoo">Data do Voo</label>
+              <input id="dataVoo" name="dataVoo" type="date" />
+            </div>
+
+            <div class="field">
+              <label for="origem">Origem (IATA)</label>
+              <input id="origem" name="origem" type="text" maxlength="3" placeholder="CGH" />
+            </div>
+            <div class="field">
+              <label for="destino">Destino (IATA)</label>
+              <input id="destino" name="destino" type="text" maxlength="3" placeholder="SSA" />
+            </div>
+
+            <div class="field">
+              <label for="partida">Horário de Partida</label>
+              <input id="partida" name="partida" type="time" />
+            </div>
+            <div class="field">
+              <label for="chegada">Horário de Chegada</label>
+              <input id="chegada" name="chegada" type="time" />
+            </div>
+
+            <div class="field">
+              <label for="duracao">Duração</label>
+              <input id="duracao" name="duracao" type="text" placeholder="Ex.: 2h 30m" />
+            </div>
+            <div class="field">
+              <label for="escalas">Escalas</label>
+              <input id="escalas" name="escalas" type="text" placeholder="Ex.: Direto" />
+            </div>
+
+            <div class="field field-full">
+              <label for="bagagem">Bagagem</label>
+              <input id="bagagem" name="bagagem" type="text" placeholder="Ex.: Apenas bagagem de mão" />
+            </div>
+
+            <div class="field field-full">
+              <label for="total">Total</label>
+              <input id="total" name="total" type="text" placeholder="Ex.: R$ 501,52" />
+            </div>
+
+            <!-- Dados do Passageiro -->
+          </div>
+          <input type="hidden" id="reservaId" name="reservaId" />
+        <div class="actions">
+          <button id="toStep2" class="primary" type="button">Preencher Passageiro</button>
+        </div>
+      </section>
+
+      <!-- STEP 2: Dados do Passageiro -->
+      <section id="step2" class="card step hidden">
+        <h2>2) Dados do Passageiro</h2>
+        <form id="passengerForm">
+          <div class="grid">
+            <div class="field">
+              <label for="nomeCompleto">Nome Completo</label>
+              <input id="nomeCompleto" name="nomeCompleto" type="text" placeholder="Nome completo" required />
+            </div>
+
+            <div class="field">
+              <label for="cpf">CPF</label>
+              <input id="cpf" name="cpf" type="text" inputmode="numeric" placeholder="000.000.000-00" required />
+            </div>
+
+            <div class="field">
+              <label for="telefone">Telefone</label>
+              <input id="telefone" name="telefone" type="tel" placeholder="(00) 00000-0000" />
+            </div>
+
+            <div class="field">
+              <label for="email">E-mail</label>
+              <input id="email" name="email" type="email" placeholder="email@exemplo.com" required />
+            </div>
+          </div>
+        </form>
+        <div class="actions">
+          <button id="backTo1" class="secondary" type="button">Voltar</button>
+          <button id="toStepPayment" class="primary" type="button">Ir para pagamento</button>
+        </div>
+      </section>
+
+      <!-- STEP 3: Pagamento (Simulado) -->
+      <section id="step3" class="card step hidden">
+        <h2>3) Pagamento</h2>
+        <p class="muted">Selecione o método de pagamento e confirme para habilitar a emissão do bilhete.</p>
+
+        <div class="pay-summary">
+          <div class="summary-row">
+            <span class="label">Valor</span>
+            <span id="amountDue" class="value">—</span>
+          </div>
+        </div>
+
+        <div class="pay-methods">
+          <label class="radio-card">
+            <input type="radio" name="payMethod" value="pix" checked />
+            <span>Pix</span>
+          </label>
+          <label class="radio-card">
+            <input type="radio" name="payMethod" value="cartao" />
+            <span>Cartão</span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="btnPay" class="primary" type="button">Confirmar Pagamento (Simulado)</button>
+        </div>
+
+        <div id="debugTools" class="card muted hidden" style="margin-top:12px; padding:12px;">
+          <strong>Ferramentas de Debug</strong>
+          <div class="grid">
+            <div class="field field-full">
+              <label for="debugIdentInput">IdentificacaoDaViagem</label>
+              <input id="debugIdentInput" type="text" placeholder="Cole aqui o identificador (base64)" />
+              <small class="muted">Use ?debug=1 na URL para exibir estas ferramentas automaticamente.</small>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="btnApplyIdent" class="secondary" type="button">Aplicar no formulário</button>
+            <button id="btnSaveIdent" class="secondary" type="button">Salvar como fallback (/identificacao)</button>
+            <a id="linkOpenConfig" class="button-link" href="#" target="_blank" rel="noopener">Abrir /config</a>
+            <a id="linkOpenDebug" class="button-link" href="#" target="_blank" rel="noopener">Abrir /debug/last-reserve</a>
+          </div>
+        </div>
+
+        <div id="paymentStatus" class="status" role="status"></div>
+
+        <div class="actions">
+          <button id="backTo1" class="secondary" type="button">Voltar</button>
+          <button id="toStep3" class="primary" type="button" disabled>Emitir Bilhete (PDF)</button>
+        </div>
+      </section>
+
+      <!-- STEP 4: Conclusão -->
+      <section id="step4" class="card step hidden">
+        <h2>4) Bilhete Emitido</h2>
+        <p class="muted">O bilhete será gerado e baixado automaticamente em PDF com os dados do voo e do passageiro.</p>
+        <div class="actions">
+          <button id="btnEmitirNovamente" class="secondary" type="button">Emitir novamente</button>
+          <a class="button-link" href="#" id="btnReiniciar">Reiniciar fluxo</a>
+        </div>
+      </section>
+
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+    </main>
+
+    <!-- PDF-LIB via CDN -->
+    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <!-- App -->
+    <script src="app.js" defer></script>
+  </body>
+</html>
