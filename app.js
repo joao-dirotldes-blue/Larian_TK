@@ -174,12 +174,14 @@
     });
   }
 
-  function populateFormWithFlight(f) {
-    const setVal = (id, v) => {
-      const el = byId(id);
-      if (!el) return;
-      el.value = v ?? "";
-    };
+function populateFormWithFlight(f) {
+  // salva como fonte de verdade
+  try { state.flight = f; } catch {}
+  const setVal = (id, v) => {
+    const el = byId(id);
+    if (!el) return;
+    el.value = v ?? "";
+  };
 
     setVal("ciaVoo", f.airlineLine);
     // dataVoo espera ISO yyyy-mm-dd; converte se vier dd/mm/yyyy
@@ -199,12 +201,15 @@
     // reservaId hidden (usado na API da Wooba)
     setVal("reservaId", f.reservationId || "");
 
-    // Trava campos do voo para usuário apenas completar os dados pessoais
-    setReadOnlyFlightFields(true);
-    // Atualiza resumos
-    updateAmountDue();
-    updateReservationCode(f.reservationId || "");
-  }
+  // Trava campos do voo para usuário apenas completar os dados pessoais (se existirem)
+  setReadOnlyFlightFields(true);
+  // Renderiza orçamento visual (Step 1)
+  try { renderQuote(f); } catch {}
+  // Atualiza resumos
+  updateAmountDue();
+  updateReservationCode(f.reservationId || "");
+  try { initQuoteExpiry(f); } catch {}
+}
 
   function autoPopulateFormFromInjectedFlight() {
     const body = getInjectedFlightBody();
@@ -263,6 +268,8 @@
   const dots = [byId("step1-dot"), byId("step2-dot"), byId("step3-dot"), byId("step4-dot")];
 
   function showStep(n) {
+    // Garante que nenhum overlay fique ativo ao trocar de etapa
+    try { hideOverlay(); } catch {}
     steps.forEach((el, i) => {
       if (!el) return;
       if (i === n - 1) el.classList.remove("hidden");
@@ -293,6 +300,7 @@
     timeouts: {
       reserveMs: 180000, // aumentado para 180s (3 minutos)
     },
+    expiry: { key: null, expiryAt: null, totalMs: 3600000, timer: null },
   };
 
   // Atualiza o valor exibido na etapa de pagamento
@@ -304,11 +312,299 @@
   }
 
   // Atualiza exibição do código/identificador de reserva
-  function updateReservationCode(code) {
-    const el = byId("reservationCode");
-    if (!el) return;
-    el.textContent = (code && String(code).trim()) ? String(code) : "—";
+function updateReservationCode(code) {
+  // Atualiza preview abreviado (5 chars) e mantém o valor completo em #reservaId/state
+  const prev = byId("reservationCodePreview");
+  if (prev) {
+    prev.textContent = abbreviateId(code, 5);
   }
+  const hidden = byId("reservaId");
+  if (hidden && code) hidden.value = code;
+  try {
+    if (!state.flight) state.flight = {};
+    if (code) state.flight.reservationId = code;
+  } catch {}
+  // Reajusta o contador de validade ao trocar de cotação
+  try { maybeResetExpiryForNewKey(); } catch {}
+}
+
+// Abrevia um identificador longo para exibição
+function abbreviateId(code, visible = 5) {
+  if (!code) return "—";
+  const s = String(code).trim();
+  if (s.length <= visible) return s;
+  return s.slice(0, visible) + "…";
+}
+
+// Copiar identificador completo para a área de transferência
+async function copyReservationId() {
+  try {
+    const full = byId("reservaId")?.value || state.flight?.reservationId || "";
+    if (!full) return;
+    await navigator.clipboard.writeText(full);
+    const btn = byId("copyReservaBtn");
+    const prev = byId("reservationCodePreview");
+    if (btn) {
+      const old = btn.textContent;
+      btn.textContent = "Copiado!";
+      setTimeout(() => { if (btn) btn.textContent = old || "Copiar"; }, 1500);
+    }
+    if (prev) {
+      prev.classList.add("copied");
+      setTimeout(() => { if (prev) prev.classList.remove("copied"); }, 1500);
+    }
+  } catch (e) {
+    alert("Não foi possível copiar o identificador");
+  }
+}
+
+// Overlay de processamento (reserva + emissão)
+function showOverlay(text) {
+  const o = byId("overlay");
+  if (!o) return;
+  if (text) {
+    const t = byId("overlayText");
+    if (t) t.textContent = text;
+  }
+  o.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+function hideOverlay() {
+  const o = byId("overlay");
+  if (!o) return;
+  o.hidden = true;
+  document.body.style.overflow = "";
+}
+
+// Renderiza a vitrine de orçamento da etapa 1 (sem inputs)
+function renderQuote(f) {
+  if (!f || typeof f !== "object") return;
+  const setText = (id, v) => {
+    const el = byId(id);
+    if (!el) return;
+    el.textContent = v != null && String(v).trim() !== "" ? String(v) : "—";
+  };
+  setText("q-origin", (f.origin || "").toUpperCase());
+  setText("q-destination", (f.destination || "").toUpperCase());
+  setText("q-airline", f.airlineLine || "");
+  setText("q-date", f.date || "");
+  setText("q-depart", f.depart || "");
+  setText("q-arrive", f.arrive || "");
+  setText("q-duration", f.duration || "");
+  setText("q-stops", f.stops || "");
+  setText("q-baggage", f.baggage || "");
+  const totalEl = byId("q-total");
+  if (totalEl) totalEl.textContent = f.total || "—";
+}
+
+/* ====== Validade do orçamento (contador de 1h, sutil) ====== */
+function getFlightKey(f) {
+  try {
+    if (f?.reservationId && String(f.reservationId).trim()) return `rid:${String(f.reservationId).trim()}`;
+    const o = String(f?.origin || "").toUpperCase();
+    const d = String(f?.destination || "").toUpperCase();
+    const dt = String(f?.date || "");
+    const al = String(f?.airlineLine || "");
+    const key = `${o}|${d}|${dt}|${al}`.trim();
+    return key ? `mix:${key}` : "mix:unknown";
+  } catch {
+    return "mix:unknown";
+  }
+}
+
+function parseExpiryOptions() {
+  try {
+    const params = new URLSearchParams(location.search);
+    const inStr = params.get("expiresIn");
+    const atStr = params.get("expiresAt");
+    const expiresInMs = parseMs(inStr);
+    const expiresAt = atStr ? Number(atStr) : null;
+    return {
+      expiresInMs: (expiresInMs && expiresInMs > 0 ? expiresInMs : null),
+      expiresAt: (Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : null)
+    };
+  } catch {
+    return { expiresInMs: null, expiresAt: null };
+  }
+}
+
+function initQuoteExpiry(flight) {
+  try {
+    const el = byId("quoteExpiry");
+    if (!el) return; // sem UI, não inicializa
+    const key = getFlightKey(flight || state.flight || {});
+    const { expiresInMs, expiresAt } = parseExpiryOptions();
+    const defaultMs = expiresInMs || 3600000; // 1h padrão
+
+    // Usa storage por cotação
+    const aKey = `expiryAt:${key}`;
+    const tKey = `expiryTotal:${key}`;
+    let storedAt = Number(localStorage.getItem(aKey) || "");
+    let totalMs = Number(localStorage.getItem(tKey) || "");
+    if (!Number.isFinite(totalMs) || totalMs <= 0) totalMs = defaultMs;
+
+    let finalAt;
+    if (expiresAt && expiresAt > Date.now()) {
+      finalAt = expiresAt;
+      localStorage.setItem(aKey, String(finalAt));
+      localStorage.setItem(tKey, String(totalMs));
+    } else if (Number.isFinite(storedAt) && storedAt > Date.now()) {
+      finalAt = storedAt;
+      if (!Number.isFinite(totalMs) || totalMs <= 0) totalMs = defaultMs;
+    } else {
+      finalAt = Date.now() + totalMs;
+      localStorage.setItem(aKey, String(finalAt));
+      localStorage.setItem(tKey, String(totalMs));
+    }
+
+    startExpiryTick(key, totalMs, finalAt);
+  } catch (e) {
+    console.warn("initQuoteExpiry failed:", e);
+  }
+}
+
+function maybeResetExpiryForNewKey() {
+  try {
+    const curKey = getFlightKey(state.flight || {});
+    if (state.expiry?.key && curKey === state.expiry.key) return;
+    // Troca de cotação → reinicia 1h (ou conforme ?expiresIn)
+    clearIntervalSafe(state.expiry?.timer);
+    state.expiry = state.expiry || {};
+    state.expiry.key = null;
+    initQuoteExpiry(state.flight || {});
+  } catch (e) {
+    console.warn("maybeResetExpiryForNewKey failed:", e);
+  }
+}
+
+function clearIntervalSafe(t) {
+  try { if (t) clearInterval(t); } catch {}
+}
+
+function startExpiryTick(key, totalMs, expiryAt) {
+  try {
+    clearIntervalSafe(state.expiry?.timer);
+    state.expiry.key = key;
+    state.expiry.totalMs = totalMs;
+    state.expiry.expiryAt = expiryAt;
+
+    const tick = () => {
+      try {
+        const now = Date.now();
+        const remain = Math.max(0, expiryAt - now);
+        updateExpiryUI(remain, totalMs);
+        if (remain <= 0) {
+          handleExpiryExpired();
+          clearIntervalSafe(state.expiry?.timer);
+          state.expiry.timer = null;
+        }
+      } catch {}
+    };
+
+    state.expiry.timer = setInterval(tick, 1000);
+    tick();
+  } catch (e) {
+    console.warn("startExpiryTick failed:", e);
+  }
+}
+
+function updateExpiryUI(remainingMs, totalMs) {
+  const wrap = byId("quoteExpiry");
+  const out = byId("expiryCountdown");
+  const bar = byId("expiryProgressBar");
+  if (!wrap || !out) return;
+
+  // thresholds
+  const warnMs = 10 * 60 * 1000; // 10m
+  const dangerMs = 60 * 1000;    // 1m
+
+  // texto
+  out.textContent = formatRemain(remainingMs);
+
+  // classes
+  wrap.classList.remove("warn", "danger");
+  if (remainingMs <= dangerMs) wrap.classList.add("danger");
+  else if (remainingMs <= warnMs) wrap.classList.add("warn");
+
+  // progress
+  const pct = Math.max(0, Math.min(1, remainingMs / (totalMs || 1)));
+  if (bar) {
+    bar.style.setProperty("--pct", String(pct));
+  }
+}
+
+function formatRemain(ms) {
+  let s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60);   s -= m * 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  if (h > 0) return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  return `${pad(m)}:${pad(s)}`;
+}
+
+function handleExpiryExpired() {
+  const wrap = byId("quoteExpiry");
+  const out = byId("expiryCountdown");
+  if (wrap) {
+    wrap.classList.remove("warn");
+    wrap.classList.add("danger");
+  }
+  if (out) out.textContent = "expirada";
+  // Desabilita ações
+  try {
+    const b1 = byId("toStep2");
+    if (b1) { b1.disabled = true; b1.title = "Cotação expirada. Obtenha uma nova."; }
+    const b2 = byId("btnPay");
+    if (b2) { b2.disabled = true; b2.title = "Cotação expirada. Obtenha uma nova."; }
+  } catch {}
+}
+
+/* Renderiza resumo da Etapa 4 (confirmação) — estilo boarding pass */
+function renderStep4Summary() {
+  try {
+    const f = state.flight || {};
+    const p = state.passenger || {};
+
+    const setText = (id, v) => {
+      const el = byId(id);
+      if (el) el.textContent = v != null && String(v).trim() !== "" ? String(v) : "—";
+    };
+
+    // Cabeçalho/rota
+    const origin = (f.origin || "").toUpperCase();
+    const destination = (f.destination || "").toUpperCase();
+    setText("bp-route", origin && destination ? `${origin} → ${destination}` : "—");
+    setText("bp-origin", origin || "—");
+    setText("bp-destination", destination || "—");
+
+    // Infos de voo
+    setText("bp-airline", f.airlineLine || "");
+    setText("bp-date", f.date || "");
+    setText("bp-depart", f.depart || "");
+    setText("bp-arrive", f.arrive || "");
+    setText("bp-duration", f.duration || "");
+    setText("bp-stops", f.stops || "");
+    setText("bp-baggage", f.baggage || "");
+
+    // Passageiro e total
+    setText("bp-pax", p?.nomeCompleto || "—");
+    const totalEl = byId("bp-total");
+    if (totalEl) totalEl.textContent = f.total || "—";
+
+    // PNR/Identificador (abreviado) no talão
+    const fullId = f.reservationId || byId("reservaId")?.value || "";
+    setText("bp-pnr", abbreviateId(fullId, 5));
+
+    // Código de barras simples (placeholder CSS) — opcionalmente poderíamos injetar texto
+    const barcode = byId("bp-barcode");
+    if (barcode) {
+      // Apenas garante re-render (sem dependências externas)
+      barcode.setAttribute("data-code", abbreviateId(fullId, 5));
+    }
+  } catch (e) {
+    console.warn("Falha ao renderizar resumo da etapa 4:", e);
+  }
+}
 
   // Tenta extrair um identificador de reserva comum de uma resposta arbitrária
   function extractReservationId(obj) {
@@ -356,21 +652,21 @@
     return true;
   }
   function reservationErrorReason(data) {
-    try {
-      if (!data || typeof data !== "object") return "Resposta inválida";
-      if (data.Exception && (data.Exception.Message || data.Exception.message)) {
-        return data.Exception.Message || data.Exception.message;
-      }
-      if (data.Mensagem || data.mensagem) return data.Mensagem || data.mensagem;
-      if (data.SessaoExpirada === true) return "Sessão expirada";
-      if ("Reservas" in data && (data.Reservas == null || (Array.isArray(data.Reservas) && data.Reservas.length === 0))) {
-        return "Resposta sem reservas";
-      }
-      return "Erro de negócio";
-    } catch {
-      return "Erro de negócio";
+  try {
+    if (!data || typeof data !== "object") return "Resposta inválida";
+    if (data.Exception && (data.Exception.Message || data.Exception.message)) {
+      return data.Exception.Message || data.Exception.message;
     }
+    if (data.Mensagem || data.mensagem) return data.Mensagem || data.mensagem;
+    if (data.SessaoExpirada === true) return "Sessão expirada";
+    if ("Reservas" in data && (data.Reservas == null || (Array.isArray(data.Reservas) && data.Reservas.length === 0))) {
+      return "Resposta sem reservas";
+    }
+    return "Erro de negócio";
+  } catch {
+    return "Erro de negócio";
   }
+}
   
   // Ajuda/Debug: exibe ferramentas e mensagens específicas para erros de negócio
   function showDebugTools() {
@@ -457,58 +753,31 @@
   const btnEmitirNovamente = byId("btnEmitirNovamente");
   const btnReiniciar = byId("btnReiniciar");
 
-  function readDetailsFromForm() {
-    const get = (id) => byId(id)?.value?.trim() || "";
+function readDetailsFromForm() {
+  const get = (id) => byId(id)?.value?.trim() || "";
 
-    const ciaVoo = get("ciaVoo");
-    const dataISO = get("dataVoo");
-    const dataBR = formatDateBRFromISO(dataISO);
+  // Passageiro (Step 2)
+  const nomeCompleto = get("nomeCompleto");
+  const cpf = get("cpf");
+  const telefone = get("telefone");
+  const email = get("email");
+  const reservaId = get("reservaId");
 
-    const origem = (get("origem") || "").toUpperCase();
-    const destino = (get("destino") || "").toUpperCase();
-
-    const partida = get("partida");
-    const chegada = get("chegada");
-
-    const duracao = get("duracao");
-    const escalas = get("escalas");
-    const bagagem = get("bagagem");
-    const total = get("total");
-
-    const nomeCompleto = get("nomeCompleto");
-    const cpf = get("cpf");
-    const telefone = get("telefone");
-    const email = get("email");
-    const reservaId = get("reservaId");
-
-    const flight = {
-      airlineLine: ciaVoo,
-      date: dataBR,
-      origin: origem,
-      destination: destino,
-      depart: partida,
-      arrive: chegada,
-      duration: duracao,
-      stops: escalas,
-      baggage: bagagem,
-      total: total,
-      reservationId: reservaId,
-      routeLine:
-        origem && destino ? `${origem} → ${destino}` : "",
-      meta: {
-        reservaId: reservaId || null,
-      },
-    };
-
-    const passenger = {
-      nomeCompleto,
-      cpf,
-      telefone,
-      email,
-    };
-
-    return { flight, passenger };
+  // Voo vem do estado (preenchido a partir do flightUrl/flight/base64)
+  const flight = { ...(state.flight || {}) };
+  if (reservaId) {
+    flight.reservationId = reservaId;
+    if (!flight.meta) flight.meta = {};
+    flight.meta.reservaId = reservaId;
   }
+  if (!flight.routeLine && flight.origin && flight.destination) {
+    flight.routeLine = `${String(flight.origin).toUpperCase()} → ${String(flight.destination).toUpperCase()}`;
+  }
+
+  const passenger = { nomeCompleto, cpf, telefone, email };
+
+  return { flight, passenger };
+}
 
   // Step 1 -> Step 2
   if (toStep2Btn) {
@@ -536,73 +805,72 @@
   if (backTo1Btn) backTo1Btn.addEventListener("click", () => showStep(1));
 
   if (btnPay) {
-    btnPay.addEventListener("click", async () => {
-      btnPay.disabled = true;
-      setPaymentStatus("Processando pagamento...", "");
-      const method = document.querySelector('input[name="payMethod"]:checked')?.value || "pix";
-      state.payment.method = method;
-      state.reserved = false;
-      log("pay-click", {
-        method,
-        apiBase: state.apiBase,
-        reservaId: byId("reservaId")?.value || state.flight?.reservationId || null,
-      });
+  btnPay.addEventListener("click", async () => {
+    btnPay.disabled = true;
 
-      try {
-        // Simulação de processamento do pagamento
-        await sleep(700);
-        state.payment.confirmed = true;
-        setPaymentStatus(`Pagamento confirmado (${method}). Realizando reserva...`, "");
+    // Define método escolhido e considera pagamento confirmado
+    const method = document.querySelector('input[name="payMethod"]:checked')?.value || "pix";
+    state.payment.method = method;
+    state.payment.confirmed = true;
+    state.reserved = false;
 
-        // Realiza a reserva antes de permitir a emissão (via backend)
-        const data = await reserveViaBackend();
-        const rid = extractReservationId(data) || state.flight?.reservationId || byId("reservaId")?.value || "";
-        if (rid && (!state.flight || !state.flight.reservationId)) {
-          state.flight = state.flight || {};
-          state.flight.reservationId = rid;
-          if (byId("reservaId")) byId("reservaId").value = rid;
-        }
-        updateReservationCode(rid);
-        state.reserved = true;
-        setPaymentStatus(`Reserva confirmada${rid ? ` (ID: ${rid})` : ""}. Você pode emitir o bilhete.`, "success");
-        if (toStep3Btn) toStep3Btn.disabled = false;
-      } catch (err) {
-        console.error("Falha na reserva:", err);
-        state.reserved = false;
+    setPaymentStatus(`Processando pagamento (${method})…`, "");
+    showOverlay("Processando sua reserva…");
 
-        let uiMsg = "Falha ao reservar a passagem";
-        let extra = "";
+    try {
+      // Reserva no backend
+      const data = await reserveViaBackend();
 
-        if (err && err.status === 422 && err.body && (err.body.error === "BUSINESS_ERROR" || err.body.data)) {
-          const msg = err.body.message || reservationErrorReason(err.body.data) || err.message;
-          extra = msg ? `: ${msg}` : "";
-          const help = buildBusinessErrorHelp(msg);
-          if (help) extra += ` — ${help}`;
-          // Exibe debug tools automaticamente para facilitar investigação
-          showDebugTools();
-          // Loga contexto de debug quando fornecido pelo backend
-          if (err.body._debug) {
-            log("reserve:business-error-debug", err.body._debug);
-          }
-        } else {
-          extra = err && err.message ? `: ${err.message}` : "";
-        }
-
-        // Se for erro de bloqueio interno, ainda permitimos emissão do bilhete HTML
-        const errMsg = (err?.body?.Exception?.Message || extra || "").toLowerCase();
-        if (errMsg.includes("blocked") || errMsg.includes("internal users")) {
-          setPaymentStatus("Reserva bloqueada para usuários internos, mas bilhete pode ser emitido em modo simulado.", "warn");
-          state.reserved = true;
-          if (toStep3Btn) toStep3Btn.disabled = false;
-        } else {
-          setPaymentStatus(uiMsg + extra, "error");
-          if (toStep3Btn) toStep3Btn.disabled = true;
-        }
-      } finally {
-        btnPay.disabled = false;
+      // Extrai/corrige identificador
+      const rid = extractReservationId(data) || state.flight?.reservationId || byId("reservaId")?.value || "";
+      if (rid && (!state.flight || !state.flight.reservationId)) {
+        state.flight = state.flight || {};
+        state.flight.reservationId = rid;
+        if (byId("reservaId")) byId("reservaId").value = rid;
       }
-    });
-  }
+      updateReservationCode(rid);
+
+      state.reserved = true;
+      setPaymentStatus(`Reserva confirmada${rid ? ` (ID: ${abbreviateId(rid, 5)})` : ""}.`, "success");
+
+      // Não emitir automaticamente: levar para a etapa 4 com resumo e botão de download
+      hideOverlay();
+      renderStep4Summary();
+      showStep(4);
+    } catch (err) {
+      console.error("Falha na reserva:", err);
+
+      let extra = "";
+      if (err && err.status === 422 && err.body && (err.body.error === "BUSINESS_ERROR" || err.body.data)) {
+        const msg = err.body.message || reservationErrorReason(err.body.data) || err.message;
+        extra = msg ? `: ${msg}` : "";
+        const help = buildBusinessErrorHelp(msg);
+        if (help) extra += ` — ${help}`;
+        showDebugTools();
+        if (err.body._debug) {
+          log("reserve:business-error-debug", err.body._debug);
+        }
+      } else {
+        extra = err && err.message ? `: ${err.message}` : "";
+      }
+
+      // Caso de bloqueio interno — ainda emite em modo simulado
+      const errMsg = (err?.body?.Exception?.Message || extra || "").toLowerCase();
+      if (errMsg.includes("blocked") || errMsg.includes("internal users")) {
+        setPaymentStatus("Reserva bloqueada para usuários internos, emitindo bilhete em modo simulado.", "warn");
+        state.reserved = true;
+        try { await emitTicket(); } catch {}
+        hideOverlay();
+        showStep(4);
+      } else {
+        hideOverlay();
+        setPaymentStatus("Falha ao reservar a passagem" + extra, "error");
+      }
+    } finally {
+      btnPay.disabled = false;
+    }
+  });
+}
 
   function setPaymentStatus(msg, type = "") {
     if (!paymentStatus) return;
@@ -1272,6 +1540,8 @@
   // Inicial
   document.addEventListener("DOMContentLoaded", async () => {
     showStep(1);
+    // Estado inicial sem overlay
+    try { hideOverlay(); } catch {}
     try {
       const params = new URLSearchParams(location.search);
       const flightUrl = params.get("flightUrl");
@@ -1335,6 +1605,26 @@
       } catch (e) {
         console.warn("debugTools setup failed", e);
       }
+
+      // Bind de cópia do identificador (Tela 1)
+      try {
+        const copyBtn = byId("copyReservaBtn");
+        if (copyBtn) copyBtn.addEventListener("click", copyReservationId);
+      } catch {}
+
+      // Bind do download de PDF na etapa 4
+      try {
+        const dl = byId("btnDownloadPdf");
+        if (dl) dl.addEventListener("click", async () => {
+          try { await emitTicket(); } catch (e) { console.warn("Falha ao baixar PDF:", e); }
+        });
+      } catch {}
+
+      // Bind de cópia do PNR no talão da etapa 4
+      try {
+        const copyStub = byId("bp-copyBtn");
+        if (copyStub) copyStub.addEventListener("click", copyReservationId);
+      } catch {}
 
       if (flightUrl) {
         // Tenta buscar JSON remoto (ex.: Mock do Postman)

@@ -2,18 +2,16 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Emissão de Bilhete</title>
     <link rel="stylesheet" href="styles.css" />
-  </head>
-  <head>
     <!-- Bibliotecas necessárias para captura e PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script>
       // Garante que html2canvas e jsPDF fiquem disponíveis globalmente
       window.html2canvas = window.html2canvas;
-      window.jspdf = window.jspdf || window.jspdf || {};
+      window.jspdf = window.jspdf || {};
     </script>
     <!-- PDF-LIB via CDN -->
     <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
@@ -23,7 +21,7 @@
   <body>
     <main class="container">
       <h1>Emissão de Bilhete</h1>
-      <p class="subtitle">Preencha os dados do voo e do passageiro, confirme o pagamento e emita o bilhete em PDF.</p>
+      <p class="subtitle">Revise o orçamento, preencha os dados e emita seu bilhete.</p>
 
       <div class="stepper">
         <div class="step-indicator" id="step1-dot">1</div>
@@ -35,60 +33,84 @@
         <div class="step-indicator" id="step4-dot">4</div>
       </div>
 
-      <!-- STEP 1: Dados do voo e do passageiro -->
+      <!-- STEP 1: Orçamento (somente leitura) -->
       <section id="step1" class="card step">
-        <h2>1) Dados do Voo</h2>
-        <div class="grid">
-          <!-- Dados do Voo -->
-            <div class="field">
-              <label for="ciaVoo">Companhia / Voo</label>
-              <input id="ciaVoo" name="ciaVoo" type="text" placeholder="Ex.: GOL LINHAS AÉREAS G3 2150" />
-            </div>
-            <div class="field">
-              <label for="dataVoo">Data do Voo</label>
-              <input id="dataVoo" name="dataVoo" type="date" />
-            </div>
+        <h2>1) Orçamento</h2>
 
-            <div class="field">
-              <label for="origem">Origem (IATA)</label>
-              <input id="origem" name="origem" type="text" maxlength="3" placeholder="CGH" />
+        <div class="quote-card" id="quoteCard">
+          <div class="quote-header">
+            <img src="logo.png" alt="Logo da agência" class="agency-logo" />
+            <div class="q-route">
+              <span class="chip" id="q-origin">—</span>
+              <span class="arrow">→</span>
+              <span class="chip" id="q-destination">—</span>
             </div>
-            <div class="field">
-              <label for="destino">Destino (IATA)</label>
-              <input id="destino" name="destino" type="text" maxlength="3" placeholder="SSA" />
+            <div class="q-airline" id="q-airline">—</div>
+            <div class="q-date" id="q-date">—</div>
+            <div class="quote-expiry" id="quoteExpiry" aria-live="polite">
+              <span class="clock" aria-hidden="true">⏳</span>
+              <span class="expiry-label">Oferta expira em</span>
+              <span id="expiryCountdown">—:—</span>
+              <div class="expiry-progress">
+                <div class="bar" id="expiryProgressBar"></div>
+              </div>
             </div>
-
-            <div class="field">
-              <label for="partida">Horário de Partida</label>
-              <input id="partida" name="partida" type="time" />
-            </div>
-            <div class="field">
-              <label for="chegada">Horário de Chegada</label>
-              <input id="chegada" name="chegada" type="time" />
-            </div>
-
-            <div class="field">
-              <label for="duracao">Duração</label>
-              <input id="duracao" name="duracao" type="text" placeholder="Ex.: 2h 30m" />
-            </div>
-            <div class="field">
-              <label for="escalas">Escalas</label>
-              <input id="escalas" name="escalas" type="text" placeholder="Ex.: Direto" />
-            </div>
-
-            <div class="field field-full">
-              <label for="bagagem">Bagagem</label>
-              <input id="bagagem" name="bagagem" type="text" placeholder="Ex.: Apenas bagagem de mão" />
-            </div>
-
-            <div class="field field-full">
-              <label for="total">Total</label>
-              <input id="total" name="total" type="text" placeholder="Ex.: R$ 501,52" />
-            </div>
-
-            <!-- Dados do Passageiro -->
           </div>
-          <input type="hidden" id="reservaId" name="reservaId" />
+
+          <div class="quote-body">
+            <div class="timeline">
+              <div class="timeline-item">
+                <div class="time" id="q-depart">—</div>
+                <div class="label">Partida</div>
+              </div>
+              <div class="timeline-sep">
+                <div class="duration" id="q-duration">—</div>
+              </div>
+              <div class="timeline-item">
+                <div class="time" id="q-arrive">—</div>
+                <div class="label">Chegada</div>
+              </div>
+            </div>
+
+            <div class="quote-meta">
+              <div class="meta-row">
+                <span class="meta-label">Escalas</span>
+                <span class="meta-value" id="q-stops">—</span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">Bagagem</span>
+                <span class="meta-value" id="q-baggage">—</span>
+              </div>
+            </div>
+
+            <div class="quote-price">
+              <div class="price-badge">
+                <span class="price-label">Total</span>
+                <span class="price-value" id="q-total">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="info-box">
+            <strong>Condições resumidas</strong>
+            <p>
+              Voos válidos apenas para as datas e horários reservados. Alterações voluntárias estão
+              sujeitas às regras da companhia aérea e a eventuais diferenças tarifárias.
+            </p>
+          </div>
+
+          <div class="quote-footer">
+            <div class="meta-row">
+              <span class="meta-label">Identificador da viagem</span>
+              <span class="meta-value id-wrap">
+                <span id="reservationCodePreview">—</span>
+                <button id="copyReservaBtn" class="copy-btn" type="button" aria-label="Copiar identificador">Copiar</button>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <input type="hidden" id="reservaId" name="reservaId" />
         <div class="actions">
           <button id="toStep2" class="primary" type="button">Preencher Passageiro</button>
         </div>
@@ -96,7 +118,7 @@
 
       <!-- STEP 2: Dados do Passageiro -->
       <section id="step2" class="card step hidden">
-        <h2>2) Dados do Passageiro</h2>
+        <h2>2) Passageiros</h2>
         <form id="passengerForm">
           <div class="grid">
             <div class="field">
@@ -129,7 +151,7 @@
       <!-- STEP 3: Pagamento (Simulado) -->
       <section id="step3" class="card step hidden">
         <h2>3) Pagamento</h2>
-        <p class="muted">Selecione o método de pagamento e confirme para habilitar a emissão do bilhete.</p>
+        <p class="muted">Selecione o método de pagamento e confirme. Após a reserva, apresentaremos seus dados e você poderá baixar o PDF.</p>
 
         <div class="pay-summary">
           <div class="summary-row">
@@ -150,7 +172,7 @@
         </div>
 
         <div class="actions">
-          <button id="btnPay" class="primary" type="button">Confirmar Pagamento (Simulado)</button>
+          <button id="btnPay" class="primary" type="button">Confirmar Pagamento</button>
         </div>
 
         <div id="debugTools" class="card muted hidden" style="margin-top:12px; padding:12px;">
@@ -174,26 +196,102 @@
 
         <div class="actions">
           <button id="backTo1" class="secondary" type="button">Voltar</button>
-          <button id="toStep3" class="primary" type="button" disabled>Emitir Bilhete (PDF)</button>
         </div>
       </section>
 
-      <!-- STEP 4: Conclusão -->
+      <!-- STEP 4: Confirmação -->
       <section id="step4" class="card step hidden">
-        <h2>4) Bilhete Emitido</h2>
-        <p class="muted">O bilhete será gerado e baixado automaticamente em PDF com os dados do voo e do passageiro.</p>
+        <h2>4) Sua passagem</h2>
+
+        <!-- Boarding Pass -->
+        <div class="boarding-pass">
+          <!-- Talão principal -->
+          <div class="bp-main">
+            <div class="bp-header">
+              <img src="logo.png" alt="Logo da agência" class="bp-logo" />
+              <span class="bp-title">Boarding Pass</span>
+            </div>
+
+            <div class="bp-route" id="bp-route">—</div>
+
+            <div class="bp-grid">
+              <div class="bp-item">
+                <div class="bp-label">Companhia / Voo</div>
+                <div class="bp-value" id="bp-airline">—</div>
+              </div>
+              <div class="bp-item">
+                <div class="bp-label">Data</div>
+                <div class="bp-value" id="bp-date">—</div>
+              </div>
+              <div class="bp-item">
+                <div class="bp-label">Partida</div>
+                <div class="bp-value" id="bp-depart">—</div>
+              </div>
+              <div class="bp-item">
+                <div class="bp-label">Chegada</div>
+                <div class="bp-value" id="bp-arrive">—</div>
+              </div>
+              <div class="bp-item">
+                <div class="bp-label">Duração</div>
+                <div class="bp-value" id="bp-duration">—</div>
+              </div>
+              <div class="bp-item">
+                <div class="bp-label">Escalas</div>
+                <div class="bp-value" id="bp-stops">—</div>
+              </div>
+              <div class="bp-item bp-full">
+                <div class="bp-label">Bagagem</div>
+                <div class="bp-value" id="bp-baggage">—</div>
+              </div>
+            </div>
+
+            <div class="bp-footer">
+              <div class="bp-passenger">
+                <div class="bp-label">Passageiro</div>
+                <div class="bp-value" id="bp-pax">—</div>
+              </div>
+              <div class="bp-total">
+                <div class="bp-label">Total</div>
+                <div class="bp-value" id="bp-total">—</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Linha de perfuração -->
+          <div class="bp-perf" aria-hidden="true"></div>
+
+          <!-- Talão destacável -->
+          <div class="bp-stub">
+            <div class="bp-stub-row">
+              <span class="chip" id="bp-origin">—</span>
+              <span class="arrow">→</span>
+              <span class="chip" id="bp-destination">—</span>
+            </div>
+            <div class="bp-stub-row">
+              <div class="bp-label">Identificador</div>
+              <div class="bp-pnr-wrap">
+                <span id="bp-pnr">—</span>
+                <button id="bp-copyBtn" class="copy-btn" type="button" aria-label="Copiar identificador">Copiar</button>
+              </div>
+            </div>
+            <div class="bp-barcode" id="bp-barcode" aria-hidden="true"></div>
+          </div>
+        </div>
+
         <div class="actions">
-          <button id="btnEmitirNovamente" class="secondary" type="button">Emitir novamente</button>
-          <a class="button-link" href="#" id="btnReiniciar">Reiniciar fluxo</a>
+          <button id="btnDownloadPdf" class="primary" type="button">Baixar PDF</button>
         </div>
       </section>
 
       <div id="status" class="status" role="status" aria-live="polite"></div>
-    </main>
 
-    <!-- PDF-LIB via CDN -->
-    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
-    <!-- App -->
-    <script src="app.js" defer></script>
+      <!-- Overlay de processamento (reserva + emissão) -->
+      <div id="overlay" class="overlay-backdrop" aria-live="polite" aria-busy="true" hidden>
+        <div class="overlay-card">
+          <div class="plane" aria-hidden="true">✈️</div>
+          <div class="overlay-text" id="overlayText">Processando…</div>
+        </div>
+      </div>
+    </main>
   </body>
 </html>
