@@ -817,6 +817,26 @@ function readDetailsFromForm() {
     setPaymentStatus(`Processando pagamento (${method})…`, "");
     showOverlay("Processando sua reserva…");
 
+    // Modo sem backend: use ?noback=1 (ou ?mock=1) para simular a reserva no front
+    {
+      let noBack = false;
+      try {
+        const p = new URLSearchParams(location.search);
+        noBack = p.get("noback") === "1" || p.get("mock") === "1";
+      } catch {}
+      if (noBack) {
+        await new Promise(r => setTimeout(r, 800));
+        const ridFallback = state.flight?.reservationId || Math.random().toString(36).slice(2, 8).toUpperCase();
+        updateReservationCode(ridFallback);
+        state.reserved = true;
+        setPaymentStatus(`Reserva confirmada (simulada)${ridFallback ? ` (ID: ${abbreviateId(ridFallback, 5)})` : ""}.`, "success");
+        hideOverlay();
+        renderStep4Summary();
+        showStep(4);
+        return;
+      }
+    }
+
     try {
       // Reserva no backend
       const data = await reserveViaBackend();
@@ -1546,12 +1566,43 @@ function readDetailsFromForm() {
       const params = new URLSearchParams(location.search);
       const flightUrl = params.get("flightUrl");
       const apiBaseFromParams = params.get("apiBase");
-      if (apiBaseFromParams) {
-        state.apiBase = apiBaseFromParams;
-      } else if (flightUrl) {
-        try { state.apiBase = new URL(flightUrl).origin; } catch {}
-      } else if (!state.apiBase) {
-        state.apiBase = location.origin.replace(":5173", ":5174");
+
+      function computeApiBase() {
+        // 1) apiBase explícito sempre vence
+        if (apiBaseFromParams) return apiBaseFromParams;
+
+        // 2) Deriva da flightUrl (absoluta ou relativa)
+        if (flightUrl) {
+          try {
+            const fu = new URL(flightUrl, location.origin);
+            // Se terminar com /flight, remove esse sufixo para obter a base (ex.: /api)
+            const basePath = fu.pathname.replace(/\/flight\/?$/, "").replace(/\/+$/, "");
+            return fu.origin + (basePath ? basePath : "");
+          } catch {}
+        }
+
+        // 3) Heurística por ambiente
+        const isHttps = location.protocol === "https:";
+        const hasPort = !!location.port;
+        if (isHttps || !hasPort) {
+          // Produção (Cloudflare/Pages): mesma origem com prefixo /api
+          return location.origin + "/api";
+        }
+
+        // Local dev (5173 → 5174)
+        if (location.origin.includes(":5173")) {
+          return location.origin.replace(":5173", ":5174");
+        }
+        return location.origin;
+      }
+
+      state.apiBase = computeApiBase();
+
+      // Evita mixed-content quando a página é HTTPS
+      if (location.protocol === "https:" && /^http:\/\//i.test(state.apiBase)) {
+        const upgraded = state.apiBase.replace(/^http:\/\//i, "https://");
+        console.warn("apiBase HTTP em página HTTPS; atualizando para", upgraded);
+        state.apiBase = upgraded;
       }
 
       // Permitir configurar timeout do front por query (?reserveTimeout=120s | 90000)

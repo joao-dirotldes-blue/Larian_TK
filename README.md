@@ -125,3 +125,56 @@ curl -i -X POST http://localhost:5180/reservar \
 - Nome/Sobrenome: derivados de `nomeCompleto` (primeira palavra → Nome; restante → Sobrenome; ambos em caps).
 - CPF/Telefone: sanitizados para dígitos.
 - Em falha da reserva, a UI exibe status com código/motivo e mantém emissão bloqueada.
+
+---
+
+## Produção (Cloudflare — Pages/Workers/Tunnel)
+
+A partir da versão “Cloudflare-friendly”, o front descobre a base da API (`apiBase`) usando a seguinte heurística:
+
+1) Se houver `?apiBase=...` na URL: usa exatamente esse valor.
+
+2) Senão, se houver `?flightUrl=...`:
+   - Se for absoluto (https://host/flight), usa o `origin` desse URL como `apiBase` (base do backend).
+   - Se for relativo (`/api/flight`), o `apiBase` vira a mesma origem + o prefixo (`/api`).
+
+3) Caso nenhum parâmetro exista:
+   - Se a página estiver em HTTPS ou sem porta (produção): usa mesma origem com prefixo `/api`. Ex.: `https://seusite.pages.dev/api`
+   - Se for ambiente local (porta 5173): usa `http://localhost:5174`.
+
+Além disso, se a página estiver em `https:` e o `apiBase` for `http://…` (sem TLS), o front tenta “upar” para `https://…` para evitar mixed content.
+
+### Cenários recomendados
+
+A) Mesmo domínio (Cloudflare Pages + Functions/Workers)
+- Configure um Worker/Function que atenda:
+  - `GET /api/flight`, `POST /api/flight`
+  - `POST /api/reservar` (proxy para seu backend real)
+- Abra o app com:
+```
+https://SEU_SITE.pages.dev/?flightUrl=/api/flight
+```
+- O front chamará `POST https://SEU_SITE.pages.dev/api/reservar`.
+
+B) API em subdomínio HTTPS (Cloudflare Tunnel/Worker dedicado)
+- Tenha o backend exposto em `https://api.SEUDOMINIO/...`
+- Abra o app com:
+```
+https://SEU_SITE.pages.dev/?apiBase=https://api.SEUDOMINIO&flightUrl=https://api.SEUDOMINIO/flight
+```
+- O front usará exatamente essas URLs (sem heurísticas).
+
+C) Sem backend (demonstração)
+- Use dados inline e reserva simulada no front:
+```
+https://SEU_SITE.pages.dev/?noback=1&flight={"companhia":"AZUL","numero_voo":"AD1234","origem":"GRU","destino":"REC","data":"30/09/2025","horario_partida":"08:15","horario_chegada":"11:45","duracao":"3h30","escalas":"Direto","bagagem":"1 x 23kg","valor_formatado":"R$ 1.234,56","IdentificacaoDaViagem":"ABCDEF123456"}
+```
+- Encode o JSON de `flight` para URL (percent-encode).
+
+### Observações importantes
+- Evite “mixed content”: se o site estiver em `https`, a API também deve estar em `https` ou atrás do mesmo domínio (Functions/Workers).
+- Se usar Worker de proxy, o CORS não é problema (mesma origem). Se for domínio separado, certifique-se de que a API responda com CORS adequado.
+- Parâmetros úteis:
+  - `expiresIn=15m` para ajustar a validade do orçamento.
+  - `debug=1` para exibir ferramentas de depuração no passo 3.
+  - `noback=1` para simular reserva (sem servidor) — útil em demos.
