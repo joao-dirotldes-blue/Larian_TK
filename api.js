@@ -323,9 +323,11 @@ const server = http.createServer(async (req, res) => {
             const id = Math.random().toString(36).slice(2, 8);
             const expiry = Date.now() + OFERTA_TTL_MS;
             ofertaStore.set(id, { payload: body, expiry });
+            console.log(`[oferta] Oferta criada com ID: ${id}. Expira em: ${new Date(expiry).toLocaleTimeString()}`);
             
             // Agendamento para limpar a oferta expirada
             setTimeout(() => {
+              console.log(`[oferta] Oferta ${id} expirou e foi removida.`);
               ofertaStore.delete(id);
             }, OFERTA_TTL_MS);
 
@@ -341,11 +343,18 @@ const server = http.createServer(async (req, res) => {
         const match = pathname.match(/^\/api\/oferta\/([a-zA-Z0-9]+)$/);
         if (match) {
           const id = match[1];
+          console.log(`[oferta] Buscando oferta com ID: ${id}`);
           const record = ofertaStore.get(id);
           if (record && record.expiry > Date.now()) {
+            console.log(`[oferta] Oferta encontrada para o ID: ${id}`);
             return sendJson(res, 200, record.payload);
           } else {
-            if (record) ofertaStore.delete(id); // Limpa se expirou
+            if (record) {
+              console.log(`[oferta] Oferta encontrada para o ID: ${id}, mas está expirada.`);
+              ofertaStore.delete(id); // Limpa se expirou
+            } else {
+              console.log(`[oferta] Nenhuma oferta encontrada para o ID: ${id}`);
+            }
             return sendJson(res, 404, { error: "NOT_FOUND", message: "Oferta não encontrada ou expirada." });
           }
         }

@@ -1887,17 +1887,22 @@ function readDetailsFromForm() {
       if (ofertaId) {
         try {
           setStatus("Carregando oferta...");
+          console.log(`[oferta] Buscando dados da oferta ID: ${ofertaId} em ${state.apiBase}/api/oferta/${ofertaId}`);
           const res = await fetch(`${state.apiBase}/api/oferta/${ofertaId}`);
           if (!res.ok) {
             const errBody = await res.json().catch(() => ({}));
+            console.error(`[oferta] Falha ao buscar oferta ${ofertaId}. Status: ${res.status}`, errBody);
             throw new Error(errBody.message || `Oferta não encontrada (${res.status})`);
           }
           const body = await res.json();
+          console.log("[oferta] Payload recebido do backend:", body);
           const f = parseFlightBody(body);
           if (f) {
+            console.log("[oferta] Payload processado com sucesso:", f);
             populateFormWithFlight(f);
             setStatus("");
           } else {
+            console.error("[oferta] Falha ao processar o payload recebido.");
             setStatus("Não foi possível interpretar os dados da oferta.", "error");
           }
         } catch (e) {
