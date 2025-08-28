@@ -176,7 +176,10 @@
 
 function populateFormWithFlight(f) {
   // salva como fonte de verdade
-  try { state.flight = f; } catch {}
+  try { 
+    state.flight = f;
+    console.log("[Debug] state.flight atualizado:", JSON.parse(JSON.stringify(state.flight)));
+  } catch {}
   const setVal = (id, v) => {
     const el = byId(id);
     if (!el) return;
@@ -930,7 +933,8 @@ function readDetailsFromForm() {
       const data = await reserveViaBackend();
 
       // Extrai/corrige identificador
-      const rid = extractReservationId(data) || state.flight?.reservationId || byId("reservaId")?.value || "";
+      const rid = extractReservationId(data);
+      console.log(`[Debug] Localizador extraído da reserva: '${rid}'`);
       if (rid && (!state.flight || !state.flight.reservationId)) {
         state.flight = state.flight || {};
         state.flight.reservationId = rid;
@@ -1791,6 +1795,7 @@ function readDetailsFromForm() {
         console.warn("apiBase HTTP em página HTTPS; atualizando para", upgraded);
         state.apiBase = upgraded;
       }
+      console.log(`[Debug] apiBase definido como: ${state.apiBase}`);
 
       // Permitir configurar timeout do front por query (?reserveTimeout=120s | 90000)
       const reserveTimeoutParam = params.get("reserveTimeout");
@@ -1867,14 +1872,17 @@ function readDetailsFromForm() {
       if (ofertaId) {
         try {
           setStatus("Carregando oferta...");
-          console.log(`[oferta] Buscando dados da oferta ID: ${ofertaId} em ${state.apiBase}/api/oferta/${ofertaId}`);
-          const res = await fetch(`${state.apiBase}/api/oferta/${ofertaId}`);
+          const url = `${state.apiBase}/api/oferta/${ofertaId}`;
+          console.log(`[Debug] Buscando oferta na URL: ${url}`);
+          const res = await fetch(url);
+          const rawText = await res.text();
+          console.log(`[Debug] Resposta crua da oferta: Status ${res.status}`, rawText);
           if (!res.ok) {
             const errBody = await res.json().catch(() => ({}));
             console.error(`[oferta] Falha ao buscar oferta ${ofertaId}. Status: ${res.status}`, errBody);
             throw new Error(errBody.message || `Oferta não encontrada (${res.status})`);
           }
-          const body = await res.json();
+          const body = JSON.parse(rawText);
           console.log("[oferta] Payload recebido do backend:", body);
           const f = parseFlightBody(body);
           if (f) {
