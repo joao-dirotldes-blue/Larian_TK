@@ -1447,10 +1447,9 @@ function readDetailsFromForm() {
     }
   }
 
-  // Emissão de bilhete agora gera PDF a partir do template ticket.html
-  async function emitTicket() {
+  // Fallback anterior baseado em template inline (mantido para compatibilidade)
+  async function fallbackEmitTicketViaTemplate() {
     try {
-      // Em vez de buscar ticket.html mockado, gera o HTML dinamicamente com os dados reais
       const html = `
         <html>
           <head>
@@ -1490,7 +1489,6 @@ function readDetailsFromForm() {
         </html>
       `;
 
-      // Cria um iframe oculto para renderizar o HTML real
       const iframe = document.createElement("iframe");
       iframe.style.position = "absolute";
       iframe.style.left = "-9999px";
@@ -1499,10 +1497,9 @@ function readDetailsFromForm() {
       iframe.contentDocument.write(html);
       iframe.contentDocument.close();
 
-      // Aguarda renderização
       await new Promise(res => setTimeout(res, 500));
 
-      // Preenche os dados no iframe usando o documento do iframe
+      // Preenchimentos (mantidos do método antigo, caso haja ids no template)
       const fillMap = {
         numeroBilhete: state.flight?.numeroBilhete || state.flight?.reservationId || "—",
         localizador: state.flight?.reservationId || "—",
@@ -1536,17 +1533,81 @@ function readDetailsFromForm() {
         if (el) el.innerHTML = fillMap[id];
       });
 
-      // Usa html2canvas + jsPDF para gerar PDF do template
       const canvas = await html2canvas(iframe.contentDocument.body, { scale: 3, useCORS: true, logging: true });
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jspdf.jsPDF("p", "pt", "a4");
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
 
-      // Faz o conteúdo ocupar toda a página
-      const imgWidth = pageWidth;
-      const imgHeight = pageHeight;
-      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+      pdf.addImage(imgData, "PNG", 0, 0, pageWidth, pageHeight);
+
+      const pax = state.passenger || {};
+      const opt = state.flight || {};
+      const route =
+        (opt?.origin && opt?.destination) ? `${opt.origin}-${opt.destination}` :
+        (opt?.routeLine ? opt.routeLine.replace(/\s*→\s*/g, "-") : "voo");
+      const dateIso = toIsoDate(opt?.date) || new Date().toISOString().slice(0, 10);
+      const filename = `bilhete_${sanitizeFilename(pax.nomeCompleto || "passageiro")}_${route}_${dateIso}.pdf`;
+
+      pdf.save(filename);
+
+      document.body.removeChild(iframe);
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  // Nova geração de PDF a partir do DOM real da Tela 4 (boarding pass)
+  async function emitTicket() {
+    try {
+      // Garante que os campos da Tela 4 estão atualizados
+      try { renderStep4Summary(); } catch {}
+      const step4 = byId("step4");
+      if (!step4) throw new Error("Tela 4 não encontrada");
+
+      // Seleciona o contêiner do bilhete; fallback para a seção inteira
+      const node = document.querySelector("#step4 .boarding-pass") || step4;
+
+      // Se a Tela 4 estiver oculta, torna visível temporariamente
+      const wasHidden = step4.classList.contains("hidden");
+      if (wasHidden) step4.classList.remove("hidden");
+
+      // Pequeno atraso para garantir renderização (fonts/imagens)
+      await new Promise(res => setTimeout(res, 150));
+
+      // Captura em alta resolução
+      const canvas = await html2canvas(node, {
+        scale: 3,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        windowWidth: Math.max(document.documentElement.clientWidth, node.scrollWidth),
+        windowHeight: Math.max(document.documentElement.clientHeight, node.scrollHeight),
+      });
+
+      // Restaura visibilidade se foi alterada
+      if (wasHidden) step4.classList.add("hidden");
+
+      const imgData = canvas.toDataURL("image/png");
+
+      // Monta PDF A4 com margens e escala proporcional (uma página)
+      const pdf = new jspdf.jsPDF("p", "pt", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 24;
+
+      let drawWidth = pageWidth - margin * 2;
+      let drawHeight = (canvas.height * drawWidth) / canvas.width;
+
+      if (drawHeight > (pageHeight - margin * 2)) {
+        const ratio = (pageHeight - margin * 2) / drawHeight;
+        drawWidth = drawWidth * ratio;
+        drawHeight = drawHeight * ratio;
+      }
+
+      const dx = (pageWidth - drawWidth) / 2;
+      const dy = (pageHeight - drawHeight) / 2;
+
+      pdf.addImage(imgData, "PNG", dx, dy, drawWidth, drawHeight);
 
       // Nome do arquivo
       const pax = state.passenger || {};
@@ -1557,15 +1618,18 @@ function readDetailsFromForm() {
       const dateIso = toIsoDate(opt?.date) || new Date().toISOString().slice(0, 10);
       const filename = `bilhete_${sanitizeFilename(pax.nomeCompleto || "passageiro")}_${route}_${dateIso}.pdf`;
 
-      // Força download do PDF
       pdf.save(filename);
-
-      document.body.removeChild(iframe);
       setStatus("Bilhete emitido com sucesso (PDF).", "success");
     } catch (err) {
-      console.error("Erro ao gerar PDF:", err);
-      alert("Erro ao gerar PDF: " + err.message);
-      setStatus("Falha ao emitir o bilhete.", "error");
+      console.error("Erro ao gerar PDF a partir do DOM:", err);
+      // Fallback para o método anterior
+      try {
+        await fallbackEmitTicketViaTemplate();
+        setStatus("Bilhete emitido (fallback).", "warn");
+      } catch (e2) {
+        setStatus("Falha ao emitir o bilhete.", "error");
+        alert("Erro ao gerar PDF: " + (err?.message || err));
+      }
     }
   }
 
