@@ -1771,6 +1771,7 @@ function readDetailsFromForm() {
     try {
       const params = new URLSearchParams(location.search);
       const flightUrl = params.get("flightUrl");
+      const ofertaId = params.get("oferta");
       const apiBaseFromParams = params.get("apiBase");
 
       function computeApiBase() {
@@ -1883,7 +1884,26 @@ function readDetailsFromForm() {
         if (copyStub) copyStub.addEventListener("click", copyReservationId);
       } catch {}
 
-      if (flightUrl) {
+      if (ofertaId) {
+        try {
+          setStatus("Carregando oferta...");
+          const res = await fetch(`${state.apiBase}/oferta/${ofertaId}`);
+          if (!res.ok) {
+            const errBody = await res.json().catch(() => ({}));
+            throw new Error(errBody.message || `Oferta não encontrada (${res.status})`);
+          }
+          const body = await res.json();
+          const f = parseFlightBody(body);
+          if (f) {
+            populateFormWithFlight(f);
+            setStatus("");
+          } else {
+            setStatus("Não foi possível interpretar os dados da oferta.", "error");
+          }
+        } catch (e) {
+          setStatus(`Falha ao carregar oferta: ${e.message}`, "error");
+        }
+      } else if (flightUrl) {
         // Tenta buscar JSON remoto (ex.: Mock do Postman)
         const body = await fetchFlightFromUrl(flightUrl);
         const f = parseFlightBody(body);

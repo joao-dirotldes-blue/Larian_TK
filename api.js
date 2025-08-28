@@ -59,6 +59,10 @@ let fallbackIdentificacao =
 
 let lastReserveDebug = null;
 
+// Armazenamento em memória para ofertas com expiração
+const ofertaStore = new Map();
+const OFERTA_TTL_MS = 1 * 60 * 60 * 1000; // 1 hora
+
 let lastFlightBody = null;
 let lastUpdatedAt = null;
 
@@ -303,6 +307,51 @@ const server = http.createServer(async (req, res) => {
 
     if (method === "GET" && pathname === "/health") {
       return sendText(res, 200, "ok");
+    }
+
+    // Endpoints para criar e buscar ofertas
+    if (pathname.startsWith("/oferta")) {
+      if (method === "POST" && pathname === "/oferta") {
+        let rawBody = "";
+        req.on("data", (c) => (rawBody += c));
+        req.on("end", () => {
+          try {
+            const body = JSON.parse(rawBody || "{}");
+            if (!body || typeof body !== 'object' || !body.ida) {
+              return sendJson(res, 400, { error: "INVALID_PAYLOAD", message: "Payload da oferta é inválido." });
+            }
+            const id = Math.random().toString(36).slice(2, 8);
+            const expiry = Date.now() + OFERTA_TTL_MS;
+            ofertaStore.set(id, { payload: body, expiry });
+            
+            // Agendamento para limpar a oferta expirada
+            setTimeout(() => {
+              ofertaStore.delete(id);
+            }, OFERTA_TTL_MS);
+
+            return sendJson(res, 201, { id });
+          } catch (e) {
+            return sendJson(res, 400, { error: "JSON_PARSE_ERROR" });
+          }
+        });
+        return;
+      }
+
+      if (method === "GET") {
+        const match = pathname.match(/^\/oferta\/([a-zA-Z0-9]+)$/);
+        if (match) {
+          const id = match[1];
+          const record = ofertaStore.get(id);
+          if (record && record.expiry > Date.now()) {
+            return sendJson(res, 200, record.payload);
+          } else {
+            if (record) ofertaStore.delete(id); // Limpa se expirou
+            return sendJson(res, 404, { error: "NOT_FOUND", message: "Oferta não encontrada ou expirada." });
+          }
+        }
+      }
+      
+      return sendJson(res, 404, { error: "Not Found" });
     }
 
     // Debug simples para verificar se as credenciais foram carregadas
