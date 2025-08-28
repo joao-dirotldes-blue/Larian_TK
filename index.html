@@ -15,6 +15,8 @@
     </script>
     <!-- PDF-LIB via CDN -->
     <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <!-- Animation Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <!-- App -->
     <script src="app.js" defer></script>
   </head>
@@ -47,10 +49,15 @@
             </div>
             <div class="q-airline" id="q-airline">—</div>
             <div class="q-date" id="q-date">—</div>
+            <div class="seller-pill" id="sellerPill" title="Vendedor">
+              <span class="seller-avatar" aria-hidden="true">👤</span>
+              <span id="sellerName">João Diroteldes</span>
+            </div>
             <div class="quote-expiry" id="quoteExpiry" aria-live="polite">
               <span class="clock" aria-hidden="true">⏳</span>
               <span class="expiry-label">Oferta expira em</span>
               <span id="expiryCountdown">—:—</span>
+              <span id="expiryExact" class="expiry-exact"></span>
               <div class="expiry-progress">
                 <div class="bar" id="expiryProgressBar"></div>
               </div>
@@ -210,6 +217,7 @@
             <div class="bp-header">
               <img src="logo.png" alt="Logo da agência" class="bp-logo" />
               <span class="bp-title">Boarding Pass</span>
+              <span class="bp-seller">Atendido por <strong id="bp-seller">João Diroteldes</strong></span>
             </div>
 
             <div class="bp-route" id="bp-route">—</div>

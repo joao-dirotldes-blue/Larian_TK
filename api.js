@@ -46,6 +46,7 @@ const LARIAN_PASSWORD = process.env.LARIAN_PASSWORD || "seller123";
 // Timeouts (ms) - aumentados para evitar timeouts prematuros
 const LOGIN_TIMEOUT = Number(process.env.LARIAN_LOGIN_TIMEOUT_MS || 30000); // 30s
 const RESERVE_TIMEOUT = Number(process.env.LARIAN_RESERVE_TIMEOUT_MS || 240000); // 240s (4 min)
+const ISSUE_TIMEOUT = Number(process.env.LARIAN_ISSUE_TIMEOUT_MS || 120000); // 120s (2 min)
 
 // Mock de IdentificacaoDaViagem (para testes) com possibilidade de override por .env e por endpoint
 const DEFAULT_MOCK_IDENTIFICACAO =
@@ -676,6 +677,397 @@ const server = http.createServer(async (req, res) => {
             error: "Forward error",
             details: String(e.message || e),
           });
+        }
+      });
+      return;
+    }
+
+    // Emissão: exige localizador (PNR) já criado previamente pela reserva
+    if (method === "POST" && pathname === "/emitir") {
+      let raw = "";
+      req.on("data", (chunk) => {
+        raw += chunk;
+        if (raw.length > 5 * 1024 * 1024) req.destroy();
+      });
+      req.on("end", async () => {
+        try {
+          const body = JSON.parse(raw || "{}");
+          const localizador = body.localizador || body.Localizador;
+
+          if (!localizador) {
+            return sendJson(res, 400, { error: "MISSING_LOCATOR", message: "Informe 'localizador' para emitir." });
+          }
+          if (!LARIAN_EMAIL || !LARIAN_PASSWORD) {
+            return sendJson(res, 401, {
+              error: "MISSING_CREDENTIALS",
+              message: "Defina LARIAN_EMAIL e LARIAN_PASSWORD no ambiente.",
+            });
+          }
+
+          // 1) Login para obter access_token
+          const loginController = new AbortController();
+          const loginTimer = setTimeout(() => loginController.abort(), LOGIN_TIMEOUT);
+          let loginRes;
+          try {
+            loginRes = await fetch(`${LARIAN_BASE}/login`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              body: JSON.stringify({ email: LARIAN_EMAIL, password: LARIAN_PASSWORD }),
+              signal: loginController.signal,
+            });
+          } catch (e) {
+            clearTimeout(loginTimer);
+            if (e && e.name === "AbortError") {
+              return sendJson(res, 504, { error: "LOGIN_TIMEOUT", timeoutMs: LOGIN_TIMEOUT });
+            }
+            throw e;
+          } finally {
+            clearTimeout(loginTimer);
+          }
+          const loginTxt = await loginRes.text();
+          let loginJson;
+          try {
+            loginJson = JSON.parse(loginTxt);
+          } catch {
+            loginJson = { raw: loginTxt };
+          }
+          if (!loginRes.ok) {
+            return sendJson(res, loginRes.status, { error: "LOGIN_FAILED", details: loginJson });
+          }
+          const token = loginJson?.access_token || loginJson?.accessToken || loginJson?.token;
+          if (!token) {
+            return sendJson(res, 502, { error: "MISSING_TOKEN", details: loginJson });
+          }
+
+          // 2) Iniciar emissão (tolerante a falhas)
+          try {
+            await fetch(`${LARIAN_BASE}/travellink/issuance/${encodeURIComponent(localizador)}:initiate`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          } catch {
+            // não bloqueia o fluxo
+          }
+
+          // 3) Emitir
+          const issueController = new AbortController();
+          const issueTimer = setTimeout(() => issueController.abort(), ISSUE_TIMEOUT);
+          let issueRes;
+          try {
+            issueRes = await fetch(`${LARIAN_BASE}/travellink/issuance`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                Localizador: localizador,
+                Pagamento: { FormaDePagamento: 1 },
+              }),
+              signal: issueController.signal,
+            });
+          } catch (e) {
+            clearTimeout(issueTimer);
+            if (e && e.name === "AbortError") {
+              return sendJson(res, 504, { error: "ISSUE_TIMEOUT", timeoutMs: ISSUE_TIMEOUT });
+            }
+            throw e;
+          } finally {
+            clearTimeout(issueTimer);
+          }
+
+          const issueTxt = await issueRes.text();
+          let issueJson;
+          try {
+            issueJson = JSON.parse(issueTxt);
+          } catch {
+            issueJson = { raw: issueTxt };
+          }
+
+          // Reclassifica erros de negócio (mesmo com HTTP 200)
+          const businessError =
+            issueJson &&
+            (issueJson.SessaoExpirada === true ||
+              issueJson.Exception ||
+              issueJson.error === true ||
+              issueJson.Error === true);
+          if (businessError) {
+            const code =
+              (issueJson.Exception && (issueJson.Exception.Code || issueJson.Exception.code)) ||
+              issueJson.Code ||
+              issueJson.code ||
+              undefined;
+            const baseMsg =
+              (issueJson.Exception && (issueJson.Exception.Message || issueJson.Exception.message)) ||
+              issueJson.Mensagem ||
+              issueJson.mensagem ||
+              issueJson.error ||
+              issueJson.Error ||
+              "Erro de negócio";
+            return sendJson(res, 422, {
+              error: "BUSINESS_ERROR",
+              code,
+              message: baseMsg,
+              data: issueJson,
+            });
+          }
+
+          return sendJson(res, issueRes.ok ? 200 : issueRes.status, issueJson);
+        } catch (e) {
+          return sendJson(res, 500, { error: "ISSUE_FORWARD_ERROR", details: String(e.message || e) });
+        }
+      });
+      return;
+    }
+
+    // Compatibilidade: tentar emitir diretamente; se não houver localizador, cria reserva e emite
+    if (method === "POST" && pathname === "/emitir-direct") {
+      let raw = "";
+      req.on("data", (chunk) => {
+        raw += chunk;
+        if (raw.length > 5 * 1024 * 1024) req.destroy();
+      });
+      req.on("end", async () => {
+        try {
+          const body = JSON.parse(raw || "{}");
+          let localizador = body.localizador || body.Localizador;
+
+          if (!LARIAN_EMAIL || !LARIAN_PASSWORD) {
+            return sendJson(res, 401, {
+              error: "MISSING_CREDENTIALS",
+              message: "Defina LARIAN_EMAIL e LARIAN_PASSWORD no ambiente.",
+            });
+          }
+
+          // 1) Login
+          const loginController = new AbortController();
+          const loginTimer = setTimeout(() => loginController.abort(), LOGIN_TIMEOUT);
+          let loginRes;
+          try {
+            loginRes = await fetch(`${LARIAN_BASE}/login`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              body: JSON.stringify({ email: LARIAN_EMAIL, password: LARIAN_PASSWORD }),
+              signal: loginController.signal,
+            });
+          } catch (e) {
+            clearTimeout(loginTimer);
+            if (e && e.name === "AbortError") {
+              return sendJson(res, 504, { error: "LOGIN_TIMEOUT", timeoutMs: LOGIN_TIMEOUT });
+            }
+            throw e;
+          } finally {
+            clearTimeout(loginTimer);
+          }
+          const loginTxt = await loginRes.text();
+          let loginJson;
+          try {
+            loginJson = JSON.parse(loginTxt);
+          } catch {
+            loginJson = { raw: loginTxt };
+          }
+          if (!loginRes.ok) {
+            return sendJson(res, loginRes.status, { error: "LOGIN_FAILED", details: loginJson });
+          }
+          const token = loginJson?.access_token || loginJson?.accessToken || loginJson?.token;
+          if (!token) {
+            return sendJson(res, 502, { error: "MISSING_TOKEN", details: loginJson });
+          }
+
+          // 2) Se não houver localizador, reservar primeiro (usando corpo recebido)
+          let reserveJson = null;
+          if (!localizador) {
+            const passengers =
+              Array.isArray(body.passengers)
+                ? body.passengers
+                : typeof body.Passageiros === "string"
+                ? (() => {
+                    try {
+                      return JSON.parse(body.Passageiros);
+                    } catch {
+                      return [];
+                    }
+                  })()
+                : Array.isArray(body.Passageiros)
+                ? body.Passageiros
+                : [];
+
+            const ident = body.IdentificacaoDaViagem || body.identificacaoDaViagem || body.identificacao_viagem || fallbackIdentificacao;
+
+            const reserveController = new AbortController();
+            const reserveTimer = setTimeout(() => reserveController.abort(), RESERVE_TIMEOUT);
+            let reserveRes;
+            try {
+              reserveRes = await fetch(`${LARIAN_BASE}/travellink/reservations`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  IdentificacaoDaViagem: ident,
+                  IdentificacaoDaViagemVolta: body.IdentificacaoDaViagemVolta || undefined,
+                  passengers: (passengers || []).map((p) => ({
+                    Nome: p.Nome,
+                    Sobrenome: p.Sobrenome,
+                    Nascimento: p.Nascimento,
+                    Sexo: p.Sexo,
+                    FaixaEtaria: p.FaixaEtaria || "ADT",
+                    CPF: p.CPF,
+                    Telefone: p.Telefone
+                      ? {
+                          NumeroDDD: p.TELEFONE?.NumeroDDD || p.Telefone.NumeroDDD,
+                          NumeroTelefone: p.TELEFONE?.NumeroTelefone || p.Telefone.NumeroTelefone,
+                          NumeroDDI: p.TELEFONE?.NumeroDDI || p.Telefone.NumeroDDI || "55",
+                        }
+                      : undefined,
+                    Email: p.Email,
+                  })),
+                  CobrancaDeServico: body.CobrancaDeServico || undefined,
+                }),
+                signal: reserveController.signal,
+              });
+            } catch (e) {
+              clearTimeout(reserveTimer);
+              if (e && e.name === "AbortError") {
+                return sendJson(res, 504, { error: "RESERVE_TIMEOUT", timeoutMs: RESERVE_TIMEOUT });
+              }
+              throw e;
+            } finally {
+              clearTimeout(reserveTimer);
+            }
+
+            const reserveTxt = await reserveRes.text();
+            try {
+              reserveJson = JSON.parse(reserveTxt);
+            } catch {
+              reserveJson = { raw: reserveTxt };
+            }
+
+            // Checa erro de negócio na reserva
+            const businessReserveError =
+              reserveJson &&
+              (reserveJson.SessaoExpirada === true ||
+                reserveJson.Exception ||
+                ("Reservas" in reserveJson &&
+                  (reserveJson.Reservas == null ||
+                    (Array.isArray(reserveJson.Reservas) && reserveJson.Reservas.length === 0))));
+            if (businessReserveError) {
+              const code =
+                (reserveJson.Exception && (reserveJson.Exception.Code || reserveJson.Exception.code)) ||
+                reserveJson.Code ||
+                reserveJson.code ||
+                undefined;
+              const baseMsg =
+                (reserveJson.Exception &&
+                  (reserveJson.Exception.Message || reserveJson.Exception.message)) ||
+                reserveJson.Mensagem ||
+                reserveJson.mensagem ||
+                reserveJson.error ||
+                reserveJson.Error ||
+                "Erro de negócio (reserva)";
+              return sendJson(res, 422, {
+                error: "BUSINESS_ERROR_RESERVE",
+                code,
+                message: baseMsg,
+                data: reserveJson,
+              });
+            }
+
+            localizador =
+              (reserveJson && reserveJson.Reservas && Array.isArray(reserveJson.Reservas) && reserveJson.Reservas[0] && (reserveJson.Reservas[0].Localizador || reserveJson.Reservas[0].CodigoReserva)) ||
+              reserveJson?.Localizador ||
+              reserveJson?.CodigoReserva ||
+              null;
+
+            if (!localizador) {
+              return sendJson(res, 502, { error: "MISSING_LOCATOR_FROM_RESERVE", data: reserveJson });
+            }
+          }
+
+          // 3) Initiate emissão (tolerante a falhas)
+          try {
+            await fetch(`${LARIAN_BASE}/travellink/issuance/${encodeURIComponent(localizador)}:initiate`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          } catch {
+            // não bloqueia
+          }
+
+          // 4) Issue
+          const issueController = new AbortController();
+          const issueTimer = setTimeout(() => issueController.abort(), ISSUE_TIMEOUT);
+          let issueRes;
+          try {
+            issueRes = await fetch(`${LARIAN_BASE}/travellink/issuance`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                Localizador: localizador,
+                Pagamento: { FormaDePagamento: 1 },
+              }),
+              signal: issueController.signal,
+            });
+          } catch (e) {
+            clearTimeout(issueTimer);
+            if (e && e.name === "AbortError") {
+              return sendJson(res, 504, { error: "ISSUE_TIMEOUT", timeoutMs: ISSUE_TIMEOUT, localizador });
+            }
+            throw e;
+          } finally {
+            clearTimeout(issueTimer);
+          }
+
+          const issueTxt = await issueRes.text();
+          let issueJson;
+          try {
+            issueJson = JSON.parse(issueTxt);
+          } catch {
+            issueJson = { raw: issueTxt };
+          }
+
+          const businessIssueError =
+            issueJson &&
+            (issueJson.SessaoExpirada === true ||
+              issueJson.Exception ||
+              issueJson.error === true ||
+              issueJson.Error === true);
+          if (businessIssueError) {
+            const code =
+              (issueJson.Exception && (issueJson.Exception.Code || issueJson.Exception.code)) ||
+              issueJson.Code ||
+              issueJson.code ||
+              undefined;
+            const baseMsg =
+              (issueJson.Exception && (issueJson.Exception.Message || issueJson.Exception.message)) ||
+              issueJson.Mensagem ||
+              issueJson.mensagem ||
+              issueJson.error ||
+              issueJson.Error ||
+              "Erro de negócio (emissão)";
+            return sendJson(res, 422, {
+              error: "BUSINESS_ERROR_ISSUE",
+              code,
+              message: baseMsg,
+              localizador,
+              data: issueJson,
+            });
+          }
+
+          return sendJson(res, 200, {
+            localizador,
+            reserve: reserveJson || undefined,
+            issue: issueJson,
+          });
+        } catch (e) {
+          return sendJson(res, 500, { error: "EMITIR_DIRECT_FORWARD_ERROR", details: String(e.message || e) });
         }
       });
       return;

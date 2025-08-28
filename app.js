@@ -270,11 +270,46 @@ function populateFormWithFlight(f) {
   function showStep(n) {
     // Garante que nenhum overlay fique ativo ao trocar de etapa
     try { hideOverlay(); } catch {}
-    steps.forEach((el, i) => {
-      if (!el) return;
-      if (i === n - 1) el.classList.remove("hidden");
-      else el.classList.add("hidden");
-    });
+    
+    const currentStep = steps.findIndex(el => !el.classList.contains("hidden"));
+    
+    // Animação de transição entre steps
+    if (typeof anime !== "undefined") {
+      const timeline = anime.timeline({
+        duration: 250,
+        easing: 'easeOutCubic'
+      });
+
+      if (currentStep > -1 && steps[currentStep]) {
+        timeline.add({
+          targets: steps[currentStep],
+          opacity: [1, 0],
+          translateY: [0, -10],
+          complete: () => {
+            steps[currentStep].classList.add("hidden");
+          }
+        });
+      }
+
+      timeline.add({
+        targets: steps[n - 1],
+        begin: () => {
+          steps[n - 1].classList.remove("hidden");
+          steps[n - 1].style.opacity = 0;
+          steps[n - 1].style.transform = 'translateY(10px)';
+        },
+        opacity: [0, 1],
+        translateY: [10, 0]
+      });
+    } else {
+      // Fallback sem animação
+      steps.forEach((el, i) => {
+        if (!el) return;
+        if (i === n - 1) el.classList.remove("hidden");
+        else el.classList.add("hidden");
+      });
+    }
+
     dots.forEach((dot, i) => {
       if (!dot) return;
       dot.classList.remove("active", "done");
@@ -297,11 +332,33 @@ function populateFormWithFlight(f) {
     payment: { method: "pix", confirmed: false },
     apiBase: null,
     reserved: false,
+    sellerName: "João Diroteldes",
     timeouts: {
       reserveMs: 180000, // aumentado para 180s (3 minutos)
     },
     expiry: { key: null, expiryAt: null, totalMs: 3600000, timer: null },
   };
+
+  // Vendedor (mock por padrão, com override por query ?seller= ou ?vendedor=)
+  function getSellerFromParams() {
+    try {
+      const p = new URLSearchParams(location.search);
+      const s = p.get("seller") || p.get("vendedor") || p.get("atendente") || "";
+      return (s && s.trim()) ? s.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+  function initSeller() {
+    try {
+      const override = getSellerFromParams();
+      if (override) state.sellerName = override;
+      const pill = byId("sellerName");
+      if (pill) pill.textContent = state.sellerName || "João Diroteldes";
+      const bp = byId("bp-seller");
+      if (bp) bp.textContent = state.sellerName || "João Diroteldes";
+    } catch {}
+  }
 
   // Atualiza o valor exibido na etapa de pagamento
   function updateAmountDue() {
@@ -368,6 +425,41 @@ function showOverlay(text) {
   }
   o.hidden = false;
   document.body.style.overflow = "hidden";
+  
+  // Animação de decolagem com anime.js
+  if (typeof anime !== "undefined") {
+    const plane = o.querySelector(".plane");
+    if (plane) {
+      // Reseta o estado antes de animar
+      anime.set(plane, {
+        translateX: -20,
+        translateY: 10,
+        rotate: 0,
+        opacity: 1
+      });
+      anime({
+        targets: plane,
+        translateX: [
+          { value: 10, duration: 540, easing: 'easeInCubic' },
+          { value: 100, duration: 1260, easing: 'easeOutSine' }
+        ],
+        translateY: [
+          { value: -5, duration: 540, easing: 'easeInCubic' },
+          { value: -80, duration: 1260, easing: 'easeOutSine' }
+        ],
+        rotate: [
+          { value: -5, duration: 540, easing: 'easeInCubic' },
+          { value: -15, duration: 1260, easing: 'easeOutSine' }
+        ],
+        opacity: [
+          { value: 1, duration: 1080 },
+          { value: 0, duration: 720, easing: 'easeInQuad' }
+        ],
+        loop: true,
+        duration: 1800
+      });
+    }
+  }
 }
 function hideOverlay() {
   const o = byId("overlay");
@@ -518,8 +610,21 @@ function updateExpiryUI(remainingMs, totalMs) {
   const warnMs = 10 * 60 * 1000; // 10m
   const dangerMs = 60 * 1000;    // 1m
 
-  // texto
+  // texto relativo (mm:ss ou hh:mm:ss)
   out.textContent = formatRemain(remainingMs);
+
+  // texto absoluto (até HH:mm ou DD/MM HH:mm)
+  const exactEl = byId("expiryExact");
+  if (exactEl && state.expiry && state.expiry.expiryAt) {
+    const d = new Date(state.expiry.expiryAt);
+    const pad = (n) => String(n).padStart(2, "0");
+    const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    exactEl.textContent = sameDay
+      ? `(até ${hm})`
+      : `(até ${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${hm})`;
+  }
 
   // classes
   wrap.classList.remove("warn", "danger");
@@ -601,6 +706,9 @@ function renderStep4Summary() {
       // Apenas garante re-render (sem dependências externas)
       barcode.setAttribute("data-code", abbreviateId(fullId, 5));
     }
+    // Vendedor
+    const bpSeller = byId("bp-seller");
+    if (bpSeller) bpSeller.textContent = state.sellerName || "João Diroteldes";
   } catch (e) {
     console.warn("Falha ao renderizar resumo da etapa 4:", e);
   }
@@ -853,7 +961,30 @@ function readDetailsFromForm() {
       state.reserved = true;
       setPaymentStatus(`Reserva confirmada${rid ? ` (ID: ${abbreviateId(rid, 5)})` : ""}.`, "success");
 
-      // Não emitir automaticamente: levar para a etapa 4 com resumo e botão de download
+      // Emissão automática no backend (segue a lógica do n8n: initiate → issue)
+      setPaymentStatus("Emissão do bilhete em andamento…", "");
+      showOverlay("Emitindo seu bilhete…");
+      try {
+        const issueData = await issueViaBackend(rid);
+        // Tenta extrair algum identificador útil do retorno (ex.: e-ticket/localizador)
+        try {
+          const maybeTicket = extractReservationId(issueData);
+          if (maybeTicket) {
+            if (!state.flight) state.flight = {};
+            state.flight.numeroBilhete = maybeTicket;
+          }
+        } catch {}
+        setPaymentStatus(`Emissão confirmada${rid ? ` (ID: ${abbreviateId(rid, 5)})` : ""}.`, "success");
+      } catch (e) {
+        console.error("Falha na emissão:", e);
+        let extra = e && e.message ? `: ${e.message}` : "";
+        if (e && e.status === 422 && e.body) {
+          const msg = e.body.message || reservationErrorReason(e.body.data) || e.message;
+          extra = msg ? `: ${msg}` : extra;
+          showDebugTools();
+        }
+        setPaymentStatus("Reserva confirmada, mas falhou a emissão automática" + extra, "warn");
+      }
       hideOverlay();
       renderStep4Summary();
       showStep(4);
@@ -927,6 +1058,7 @@ function readDetailsFromForm() {
 
     const payload = {
       IdentificacaoDaViagem: reservaId,
+      IdentificacaoDaViagemVolta: "",
       passengers: [
         {
           CPF: cpf,
@@ -1024,6 +1156,79 @@ function readDetailsFromForm() {
     if (!isReservationSuccess(data)) {
       const msg = reservationErrorReason(data);
       const err = new Error(`Reserva retornou erro de negócio: ${msg}`);
+      err.status = 200;
+      err.body = data;
+      throw err;
+    }
+
+    return data;
+  }
+
+  // Emissão via backend local (/emitir) com timeout ~120s
+  async function issueViaBackend(localizador) {
+    if (!localizador) {
+      const err = new Error("Localizador ausente para emissão");
+      err.code = "MISSING_LOCATOR";
+      throw err;
+    }
+    const apiBase = state.apiBase || window.location.origin.replace(":5173", ":5174");
+    const url = `${apiBase}/emitir`;
+    const controller = new AbortController();
+    const ISSUE_MS = 120000;
+    const t0 = performance.now();
+
+    const timer = setTimeout(() => controller.abort(), ISSUE_MS);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ localizador }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if (e && e.name === "AbortError") {
+        clearTimeout(timer);
+        const err = new Error(`Timeout ao emitir (${ISSUE_MS / 1000 | 0}s).`);
+        err.code = "TIMEOUT";
+        throw err;
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const text = await res.text();
+    log("issue:response-backend", {
+      status: res.status,
+      ms: Math.round(performance.now() - t0),
+      bodySample: text.slice(0, 300) + (text.length > 300 ? "…" : ""),
+    });
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+
+    if (!res.ok) {
+      const msg =
+        (data && (data.error || data.message || data.Mensagem || data.mensagem || data.raw)) ||
+        text ||
+        "Falha na emissão";
+      const err = new Error(`Emissão falhou (${res.status}): ${String(msg).slice(0, 300)}`);
+      err.status = res.status;
+      err.body = data;
+      throw err;
+    }
+
+    // Regras de erro de negócio (similar ao /reservar)
+    if (data && (data.SessaoExpirada === true || data.Exception || data.error === true || data.Error === true)) {
+      const businessMsg =
+        (data.Exception && (data.Exception.Message || data.Exception.message)) ||
+        data.Mensagem || data.mensagem || data.error || data.Error || "Erro de negócio (emissão)";
+      const err = new Error(`Emissão retornou erro de negócio: ${businessMsg}`);
       err.status = 200;
       err.body = data;
       throw err;
@@ -1560,6 +1765,7 @@ function readDetailsFromForm() {
   // Inicial
   document.addEventListener("DOMContentLoaded", async () => {
     showStep(1);
+    initSeller();
     // Estado inicial sem overlay
     try { hideOverlay(); } catch {}
     try {
