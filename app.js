@@ -718,6 +718,15 @@ function renderStep4Summary() {
   function extractReservationId(obj) {
     try {
       if (!obj || typeof obj !== "object") return "";
+
+      // Caminho prioritário e exato
+      if (obj?.Reservas?.[0]?.CodigoReserva) {
+        return obj.Reservas[0].CodigoReserva;
+      }
+      if (obj?.Reservas?.[0]?.Localizador) {
+        return obj.Reservas[0].Localizador;
+      }
+
       const keys = [
         "localizador",
         "locator",
