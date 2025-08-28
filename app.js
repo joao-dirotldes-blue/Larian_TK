@@ -1074,7 +1074,7 @@ function readDetailsFromForm() {
       }
     })();
 
-    const url = `${apiBase}/reservar${mockParam ? "?mock=1" : ""}`;
+    const url = `${apiBase}/api/reservar${mockParam ? "?mock=1" : ""}`;
     const controller = new AbortController();
     const reserveMs = (state.timeouts && state.timeouts.reserveMs) || 180000; // 3min default
     const t0 = performance.now();
@@ -1156,7 +1156,7 @@ function readDetailsFromForm() {
       throw err;
     }
     const apiBase = state.apiBase || window.location.origin.replace(":5173", ":5174");
-    const url = `${apiBase}/emitir`;
+    const url = `${apiBase}/api/emitir`;
     const controller = new AbortController();
     const ISSUE_MS = 120000;
     const t0 = performance.now();
@@ -1761,30 +1761,9 @@ function readDetailsFromForm() {
       function computeApiBase() {
         // 1) apiBase explícito sempre vence
         if (apiBaseFromParams) return apiBaseFromParams;
-
-        // 2) Deriva da flightUrl (absoluta ou relativa)
-        if (flightUrl) {
-          try {
-            const fu = new URL(flightUrl, location.origin);
-            // Se terminar com /flight, remove esse sufixo para obter a base (ex.: /api)
-            const basePath = fu.pathname.replace(/\/flight\/?$/, "").replace(/\/+$/, "");
-            return fu.origin + (basePath ? basePath : "");
-          } catch {}
-        }
-
-        // 3) Heurística por ambiente
-        const isHttps = location.protocol === "https:";
-        const hasPort = !!location.port;
-        if (isHttps || !hasPort) {
-          // Produção (Cloudflare/Pages): mesma origem com prefixo /api
-          return location.origin + "/api";
-        }
-
-        // Local dev (5173 → 5174)
-        if (location.origin.includes(":5173")) {
-          return location.origin.replace(":5173", ":5174");
-        }
-        return location.origin;
+        
+        // A API está sempre na mesma origem da página, o Nginx faz o proxy.
+        return window.location.origin;
       }
 
       state.apiBase = computeApiBase();
