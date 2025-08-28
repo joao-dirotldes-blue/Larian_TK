@@ -720,11 +720,11 @@ function renderStep4Summary() {
       if (!obj || typeof obj !== "object") return "";
 
       // Caminho prioritário e exato
-      if (obj?.Reservas?.[0]?.CodigoReserva) {
-        return obj.Reservas[0].CodigoReserva;
-      }
       if (obj?.Reservas?.[0]?.Localizador) {
         return obj.Reservas[0].Localizador;
+      }
+      if (obj?.Reservas?.[0]?.CodigoReserva) {
+        return obj.Reservas[0].CodigoReserva;
       }
 
       const keys = [
