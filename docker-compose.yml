@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
     healthcheck:
       # busybox wget is available in alpine base images
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5174/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${PORT:-5174}/health || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 10
