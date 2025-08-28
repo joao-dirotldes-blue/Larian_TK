@@ -176,10 +176,7 @@
 
 function populateFormWithFlight(f) {
   // salva como fonte de verdade
-  try { 
-    state.flight = f;
-    console.log("[Debug] state.flight atualizado:", JSON.parse(JSON.stringify(state.flight)));
-  } catch {}
+  try { state.flight = f; } catch {}
   const setVal = (id, v) => {
     const el = byId(id);
     if (!el) return;
@@ -720,16 +717,17 @@ function renderStep4Summary() {
   // Tenta extrair um identificador de reserva comum de uma resposta arbitrária
   function extractReservationId(obj) {
     try {
-      if (!obj || typeof obj !== "object") return "";
-
-      // Caminho prioritário e exato, conforme a resposta da API
-      if (obj?.Reservas?.[0]?.Localizador) {
-        return obj.Reservas[0].Localizador;
+      // Procura o Localizador no caminho exato e único
+      const localizador = obj?.Reservas?.[0]?.Localizador;
+      if (localizador) {
+        console.log(`[extractReservationId] Localizador encontrado: ${localizador}`);
+        return localizador;
       }
-      
-      // Se não encontrar, retorna vazio para evitar enviar dados errados para a emissão
+      // Se não encontrar, loga um erro claro
+      console.error("[extractReservationId] 'Localizador' não encontrado na resposta da reserva.", obj);
       return "";
-    } catch {
+    } catch (e) {
+      console.error("[extractReservationId] Erro ao tentar extrair o Localizador:", e);
       return "";
     }
   }
@@ -933,8 +931,7 @@ function readDetailsFromForm() {
       const data = await reserveViaBackend();
 
       // Extrai/corrige identificador
-      const rid = extractReservationId(data);
-      console.log(`[Debug] Localizador extraído da reserva: '${rid}'`);
+      const rid = extractReservationId(data) || state.flight?.reservationId || byId("reservaId")?.value || "";
       if (rid && (!state.flight || !state.flight.reservationId)) {
         state.flight = state.flight || {};
         state.flight.reservationId = rid;
@@ -1074,7 +1071,7 @@ function readDetailsFromForm() {
       }
     })();
 
-    const url = `${apiBase}/api/reservar${mockParam ? "?mock=1" : ""}`;
+    const url = `${apiBase}/reservar${mockParam ? "?mock=1" : ""}`;
     const controller = new AbortController();
     const reserveMs = (state.timeouts && state.timeouts.reserveMs) || 180000; // 3min default
     const t0 = performance.now();
@@ -1156,7 +1153,7 @@ function readDetailsFromForm() {
       throw err;
     }
     const apiBase = state.apiBase || window.location.origin.replace(":5173", ":5174");
-    const url = `${apiBase}/api/emitir`;
+    const url = `${apiBase}/emitir`;
     const controller = new AbortController();
     const ISSUE_MS = 120000;
     const t0 = performance.now();
@@ -1761,9 +1758,30 @@ function readDetailsFromForm() {
       function computeApiBase() {
         // 1) apiBase explícito sempre vence
         if (apiBaseFromParams) return apiBaseFromParams;
-        
-        // A API está sempre na mesma origem da página, o Nginx faz o proxy.
-        return window.location.origin;
+
+        // 2) Deriva da flightUrl (absoluta ou relativa)
+        if (flightUrl) {
+          try {
+            const fu = new URL(flightUrl, location.origin);
+            // Se terminar com /flight, remove esse sufixo para obter a base (ex.: /api)
+            const basePath = fu.pathname.replace(/\/flight\/?$/, "").replace(/\/+$/, "");
+            return fu.origin + (basePath ? basePath : "");
+          } catch {}
+        }
+
+        // 3) Heurística por ambiente
+        const isHttps = location.protocol === "https:";
+        const hasPort = !!location.port;
+        if (isHttps || !hasPort) {
+          // Produção (Cloudflare/Pages): mesma origem com prefixo /api
+          return location.origin + "/api";
+        }
+
+        // Local dev (5173 → 5174)
+        if (location.origin.includes(":5173")) {
+          return location.origin.replace(":5173", ":5174");
+        }
+        return location.origin;
       }
 
       state.apiBase = computeApiBase();
@@ -1774,7 +1792,6 @@ function readDetailsFromForm() {
         console.warn("apiBase HTTP em página HTTPS; atualizando para", upgraded);
         state.apiBase = upgraded;
       }
-      console.log(`[Debug] apiBase definido como: ${state.apiBase}`);
 
       // Permitir configurar timeout do front por query (?reserveTimeout=120s | 90000)
       const reserveTimeoutParam = params.get("reserveTimeout");
@@ -1851,17 +1868,14 @@ function readDetailsFromForm() {
       if (ofertaId) {
         try {
           setStatus("Carregando oferta...");
-          const url = `${state.apiBase}/api/oferta/${ofertaId}`;
-          console.log(`[Debug] Buscando oferta na URL: ${url}`);
-          const res = await fetch(url);
-          const rawText = await res.text();
-          console.log(`[Debug] Resposta crua da oferta: Status ${res.status}`, rawText);
+          console.log(`[oferta] Buscando dados da oferta ID: ${ofertaId} em ${state.apiBase}/api/oferta/${ofertaId}`);
+          const res = await fetch(`${state.apiBase}/api/oferta/${ofertaId}`);
           if (!res.ok) {
             const errBody = await res.json().catch(() => ({}));
             console.error(`[oferta] Falha ao buscar oferta ${ofertaId}. Status: ${res.status}`, errBody);
             throw new Error(errBody.message || `Oferta não encontrada (${res.status})`);
           }
-          const body = JSON.parse(rawText);
+          const body = await res.json();
           console.log("[oferta] Payload recebido do backend:", body);
           const f = parseFlightBody(body);
           if (f) {
