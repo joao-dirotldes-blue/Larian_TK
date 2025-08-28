@@ -310,8 +310,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Endpoints para criar e buscar ofertas
-    if (pathname.startsWith("/oferta")) {
-      if (method === "POST" && pathname === "/oferta") {
+    if (pathname.startsWith("/api/oferta")) {
+      if (method === "POST" && pathname === "/api/oferta") {
         let rawBody = "";
         req.on("data", (c) => (rawBody += c));
         req.on("end", () => {
@@ -338,7 +338,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (method === "GET") {
-        const match = pathname.match(/^\/oferta\/([a-zA-Z0-9]+)$/);
+        const match = pathname.match(/^\/api\/oferta\/([a-zA-Z0-9]+)$/);
         if (match) {
           const id = match[1];
           const record = ofertaStore.get(id);

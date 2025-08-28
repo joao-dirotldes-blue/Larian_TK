@@ -1887,7 +1887,7 @@ function readDetailsFromForm() {
       if (ofertaId) {
         try {
           setStatus("Carregando oferta...");
-          const res = await fetch(`${state.apiBase}/oferta/${ofertaId}`);
+          const res = await fetch(`${state.apiBase}/api/oferta/${ofertaId}`);
           if (!res.ok) {
             const errBody = await res.json().catch(() => ({}));
             throw new Error(errBody.message || `Oferta não encontrada (${res.status})`);
