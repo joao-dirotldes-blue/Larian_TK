@@ -381,7 +381,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Verificação rápida do /reservar (sem chamar a Larian)
-    if (method === "GET" && pathname === "/reservar/check") {
+    if (method === "GET" && (pathname === "/reservar/check" || pathname === "/api/reservar/check")) {
       if (!LARIAN_EMAIL || !LARIAN_PASSWORD) {
         return sendJson(res, 401, {
           error: "Credenciais ausentes (defina LARIAN_EMAIL e LARIAN_PASSWORD).",
@@ -470,7 +470,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Proxy: realiza login no gateway Larian e, em seguida, cria a reserva com Bearer token
-    if (method === "POST" && pathname === "/reservar") {
+    if (method === "POST" && (pathname === "/reservar" || pathname === "/api/reservar")) {
       let raw = "";
       req.on("data", (chunk) => {
         raw += chunk;
@@ -741,7 +741,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Emissão: exige localizador (PNR) já criado previamente pela reserva
-    if (method === "POST" && pathname === "/emitir") {
+    if (method === "POST" && (pathname === "/emitir" || pathname === "/api/emitir")) {
       let raw = "";
       req.on("data", (chunk) => {
         raw += chunk;
@@ -880,7 +880,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Compatibilidade: tentar emitir diretamente; se não houver localizador, cria reserva e emite
-    if (method === "POST" && pathname === "/emitir-direct") {
+    if (method === "POST" && (pathname === "/emitir-direct" || pathname === "/api/emitir-direct")) {
       let raw = "";
       req.on("data", (chunk) => {
         raw += chunk;
