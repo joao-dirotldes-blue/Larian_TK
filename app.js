@@ -719,41 +719,12 @@ function renderStep4Summary() {
     try {
       if (!obj || typeof obj !== "object") return "";
 
-      // Caminho prioritário e exato
+      // Caminho prioritário e exato, conforme a resposta da API
       if (obj?.Reservas?.[0]?.Localizador) {
         return obj.Reservas[0].Localizador;
       }
-      if (obj?.Reservas?.[0]?.CodigoReserva) {
-        return obj.Reservas[0].CodigoReserva;
-      }
-
-      const keys = [
-        "localizador",
-        "locator",
-        "codigoreserva",
-        "reservationcode",
-        "pnr",
-        "reservaid",
-        "idreserva",
-        "id",
-        "codigo",
-        "codigolocalizador"
-      ];
-      const stack = [obj];
-      const seen = new Set();
-      while (stack.length) {
-        const cur = stack.pop();
-        if (!cur || typeof cur !== "object") continue;
-        if (seen.has(cur)) continue;
-        seen.add(cur);
-        for (const k of Object.keys(cur)) {
-          const v = cur[k];
-          if (keys.includes(String(k).toLowerCase()) && v != null && v !== "") {
-            return String(v);
-          }
-          if (v && typeof v === "object") stack.push(v);
-        }
-      }
+      
+      // Se não encontrar, retorna vazio para evitar enviar dados errados para a emissão
       return "";
     } catch {
       return "";
