@@ -1071,7 +1071,7 @@ function readDetailsFromForm() {
       }
     })();
 
-    const url = `${apiBase}/reservar${mockParam ? "?mock=1" : ""}`;
+    const url = `${apiBase}/api/reservar${mockParam ? "?mock=1" : ""}`;
     const controller = new AbortController();
     const reserveMs = (state.timeouts && state.timeouts.reserveMs) || 180000; // 3min default
     const t0 = performance.now();
@@ -1153,7 +1153,7 @@ function readDetailsFromForm() {
       throw err;
     }
     const apiBase = state.apiBase || window.location.origin.replace(":5173", ":5174");
-    const url = `${apiBase}/emitir`;
+    const url = `${apiBase}/api/emitir`;
     const controller = new AbortController();
     const ISSUE_MS = 120000;
     const t0 = performance.now();
@@ -1773,8 +1773,8 @@ function readDetailsFromForm() {
         const isHttps = location.protocol === "https:";
         const hasPort = !!location.port;
         if (isHttps || !hasPort) {
-          // Produção (Cloudflare/Pages): mesma origem com prefixo /api
-          return location.origin + "/api";
+          // Produção (Cloudflare/Pages): mesma origem
+          return location.origin;
         }
 
         // Local dev (5173 → 5174)
@@ -1827,7 +1827,7 @@ function readDetailsFromForm() {
                 setStatus("Informe uma IdentificacaoDaViagem para salvar.", "error");
                 return;
               }
-              const r = await fetch(`${state.apiBase}/identificacao`, {
+              const r = await fetch(`${state.apiBase}/api/identificacao`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Accept: "application/json" },
                 body: JSON.stringify({ IdentificacaoDaViagem: v }),
